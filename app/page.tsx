@@ -38,7 +38,7 @@ export default function Catalogo() {
     <>
       {demo && (
         <div className="bg-[#15153f] text-[#faf9f5]/80 text-[11px] tracking-wide text-center py-1.5 px-4">
-          Vitrine de demonstração · produtos de exemplo
+          Catálogo em montagem · preços a confirmar no pedido
         </div>
       )}
       <Header />
