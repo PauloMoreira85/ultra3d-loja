@@ -21,10 +21,9 @@ export default function Catalogo() {
           supabase.from('categorias').select('*').eq('ativo', true).order('ordem'),
           supabase.from('produtos').select('*').eq('ativo', true).order('ordem'),
         ])
-        const pc = (c.data ?? []) as Categoria[]
         const pp = (p.data ?? []) as Produto[]
         if (pp.length === 0) { setCats(demoCategorias); setProds(demoProdutos); setDemo(true) }
-        else { setCats(pc); setProds(pp) }
+        else { setCats((c.data ?? []) as Categoria[]); setProds(pp) }
       } catch {
         setCats(demoCategorias); setProds(demoProdutos); setDemo(true)
       }
@@ -37,60 +36,69 @@ export default function Catalogo() {
 
   return (
     <>
+      {demo && (
+        <div className="bg-[#15153f] text-[#faf9f5]/80 text-[11px] tracking-wide text-center py-1.5 px-4">
+          Vitrine de demonstração · produtos de exemplo
+        </div>
+      )}
       <Header />
-      <main className="max-w-3xl mx-auto px-4 pb-28">
-        <section className="pt-7 pb-4 text-center">
-          <div className="flex flex-col items-center gap-2">
-            <span className="grid h-20 w-20 place-items-center rounded-2xl bg-[#333389] text-[#C9A86A] text-3xl leading-none shadow-md font-extrabold">3D</span>
-            <span className="text-3xl font-extrabold tracking-tight text-[#333389]">Ultra <span className="text-[#C9A86A]">3D</span> Brasil</span>
-          </div>
-          <h1 className="text-3xl font-extrabold leading-tight mt-4 text-[#333389]">Peças 3D <span className="text-[#C9A86A]">feitas pra você</span></h1>
-          <p className="mt-2 text-sm text-[#6f6d86]">Decoração, colecionáveis e brindes personalizados · Maringá/PR · enviamos pra todo o Brasil</p>
+
+      <main className="max-w-5xl mx-auto px-5 pb-28">
+        {/* HERO */}
+        <section className="pt-14 pb-10 text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-ultra.png" alt="Ultra 3D Brasil" className="h-14 sm:h-16 w-auto mx-auto mb-7" />
+          <span className="inline-block text-[11px] tracking-[0.28em] uppercase font-semibold text-[#C9A86A]">Impressão 3D autoral</span>
+          <h1 className="serif text-4xl sm:text-6xl font-semibold leading-[1.02] mt-3 text-[#15153f]">
+            Peças que viram <span className="italic text-[#333389]">objeto de desejo</span>
+          </h1>
+          <p className="mt-5 text-[15px] sm:text-base text-[#15153f]/60 max-w-xl mx-auto leading-relaxed">
+            Decoração, colecionáveis e brindes personalizados — impressos com acabamento de gente grande.
+            Maringá/PR · enviamos para todo o Brasil.
+          </p>
         </section>
 
+        {/* NAV categorias */}
         {comProdutos.length > 0 && (
-          <nav className="sticky top-16 z-30 -mx-4 px-4 py-2.5 bg-[#faf9f5]/95 backdrop-blur border-y border-[#E7DFCF] mb-6">
-            <div className="flex gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+          <nav className="sticky top-[70px] z-30 -mx-5 px-5 py-3 bg-[#faf9f5]/92 backdrop-blur border-y border-[#15153f]/8 mb-9">
+            <div className="flex gap-2 overflow-x-auto max-w-5xl mx-auto">
               {comProdutos.map(c => (
-                <a key={c.id} href={`#sec-${c.id}`} className="shrink-0 rounded-full bg-white border border-[#E7DFCF] px-4 py-1.5 text-sm font-bold text-[#43425c] whitespace-nowrap active:bg-[#C9A86A] active:text-[#333389]">{c.nome}</a>
+                <a key={c.id} href={`#sec-${c.id}`} className="shrink-0 rounded-full bg-white border border-[#15153f]/10 px-4 py-1.5 text-sm font-semibold text-[#15153f]/75 whitespace-nowrap hover:border-[#C9A86A] hover:text-[#333389] transition">{c.nome}</a>
               ))}
             </div>
           </nav>
         )}
 
-        {demo && !loading && (
-          <div className="mb-5 rounded-lg bg-[#C9A86A]/20 border border-[#C9A86A] text-[#5a4a00] text-xs font-semibold px-3 py-2 text-center">
-            Vitrine em modo demonstração — produtos de exemplo. Ao conectar o banco, entram os produtos reais.
-          </div>
-        )}
-
-        {loading && <p className="text-[#6f6d86]">Carregando o catálogo…</p>}
+        {loading && <p className="text-center text-[#15153f]/50 py-10">Carregando o catálogo…</p>}
 
         {cats.map(cat => {
           const list = prods.filter(p => p.categoria_id === cat.id)
           if (!list.length) return null
           return (
-            <section key={cat.id} id={`sec-${cat.id}`} className="mb-8 scroll-mt-32">
-              <h2 className="text-2xl font-extrabold mb-3 text-[#333389]">{cat.nome}</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <section key={cat.id} id={`sec-${cat.id}`} className="mb-14 scroll-mt-36">
+              <div className="flex items-end justify-between mb-5">
+                <h2 className="serif text-3xl font-semibold text-[#15153f]">{cat.nome}</h2>
+                <span className="text-xs text-[#15153f]/40 font-medium">{list.length} {list.length === 1 ? 'peça' : 'peças'}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {list.map((p) => {
                   const out = esgotado(p)
                   return (
-                    <div key={p.id} className={`rounded-2xl bg-white border border-[#E7DFCF] overflow-hidden flex flex-col ${out ? 'opacity-60' : ''}`}>
-                      <div className="aspect-square bg-[#F0ECE2] grid place-items-center overflow-hidden">
+                    <div key={p.id} className={`group rounded-2xl bg-white border border-[#15153f]/8 overflow-hidden flex flex-col transition hover:shadow-[0_18px_40px_-20px_rgba(21,21,63,0.35)] hover:-translate-y-1 ${out ? 'opacity-60' : ''}`}>
+                      <div className="aspect-square bg-gradient-to-br from-[#f0eee6] to-[#e6e3d8] grid place-items-center overflow-hidden">
                         {p.foto_url
                           // eslint-disable-next-line @next/next/no-img-element
-                          ? <img src={p.foto_url} alt={p.nome} onClick={() => p.foto_url && setZoom(p.foto_url)} className={`h-full w-full object-cover cursor-zoom-in ${out ? 'grayscale' : ''}`} />
-                          : <span className="text-4xl text-[#C9A86A]/60 font-extrabold">3D</span>}
+                          ? <img src={p.foto_url} alt={p.nome} onClick={() => p.foto_url && setZoom(p.foto_url)} className={`h-full w-full object-cover cursor-zoom-in transition duration-500 group-hover:scale-105 ${out ? 'grayscale' : ''}`} />
+                          : <span className="serif text-4xl text-[#C9A86A]/50">3D</span>}
                       </div>
-                      <div className="p-3 flex flex-col flex-1">
-                        <div className="font-bold leading-tight text-[#333389] text-sm">{p.nome}</div>
-                        {p.descricao && <div className="text-[11px] text-[#6f6d86] mt-0.5 line-clamp-2">{p.descricao}</div>}
-                        <div className="mt-2 flex items-center justify-between gap-2">
-                          <span className="text-[#C9A86A] font-extrabold">{brl(p.preco)}</span>
+                      <div className="p-4 flex flex-col flex-1">
+                        <div className="font-bold leading-snug text-[#15153f] text-[15px]">{p.nome}</div>
+                        {p.descricao && <div className="text-xs text-[#15153f]/55 mt-1 line-clamp-2 leading-relaxed">{p.descricao}</div>}
+                        <div className="mt-3 pt-3 border-t border-[#15153f]/8 flex items-center justify-between gap-2">
+                          <span className="serif text-lg font-bold text-[#333389]">{brl(p.preco)}</span>
                           {out
-                            ? <span className="text-[11px] font-bold text-[#6f6d86]">Esgotado</span>
-                            : <button onClick={() => add(p)} className="rounded-lg bg-[#C9A86A] text-[#333389] font-bold px-3 py-1.5 text-sm active:scale-95 transition">+ Add</button>}
+                            ? <span className="text-[11px] font-bold text-[#15153f]/40">Esgotado</span>
+                            : <button onClick={() => add(p)} className="rounded-full bg-[#C9A86A] text-[#15153f] font-bold px-3.5 py-1.5 text-sm hover:bg-[#b8955a] active:scale-95 transition">Adicionar</button>}
                         </div>
                       </div>
                     </div>
@@ -103,19 +111,19 @@ export default function Catalogo() {
       </main>
 
       {count > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t-2 border-[#333389] bg-[#faf9f5] p-3">
-          <Link href="/carrinho" className="max-w-3xl mx-auto flex items-center justify-between rounded-xl bg-[#333389] text-[#faf9f5] font-bold px-4 py-3">
-            <span>{count} {count === 1 ? 'item' : 'itens'}</span>
-            <span>Ver carrinho · {brl(total)} →</span>
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#15153f]/10 bg-[#faf9f5]/95 backdrop-blur p-3">
+          <Link href="/carrinho" className="max-w-5xl mx-auto flex items-center justify-between rounded-full bg-[#15153f] text-[#faf9f5] font-bold px-6 py-3.5 hover:bg-[#333389] transition">
+            <span>{count} {count === 1 ? 'item' : 'itens'} no carrinho</span>
+            <span className="flex items-center gap-2">{brl(total)} <span className="text-[#C9A86A]">→</span></span>
           </Link>
         </div>
       )}
 
       {zoom && (
-        <div className="fixed inset-0 z-[60] bg-black/90 grid place-items-center p-3" onClick={() => setZoom(null)}>
+        <div className="fixed inset-0 z-[60] bg-black/90 grid place-items-center p-4" onClick={() => setZoom(null)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="" className="max-w-full max-h-full rounded-xl" />
-          <button aria-label="Fechar" className="absolute top-4 right-5 text-white text-4xl leading-none">×</button>
+          <img src={zoom} alt="" className="max-w-full max-h-full rounded-2xl" />
+          <button aria-label="Fechar" className="absolute top-4 right-6 text-white text-4xl leading-none">×</button>
         </div>
       )}
     </>
