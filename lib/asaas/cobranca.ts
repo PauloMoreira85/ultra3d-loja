@@ -38,14 +38,22 @@ export async function gerarCobrancaPedido(
     if (customerId) { try { await buscarCustomer(customerId) } catch { customerId = null } }
   }
   if (!customerId) {
-    const c = await criarCustomer({
+    const tel = onlyDigits(pedido.cliente_telefone)
+    const dados = {
       name: pedido.cliente_nome || 'Cliente Ultra 3D Brasil',
       cpfCnpj: cpf,
-      mobilePhone: onlyDigits(pedido.cliente_telefone),
       email: pedido.cliente_email || undefined,
       externalReference: pedido.user_id ? `cliente-${pedido.user_id}` : `pedido-${pedidoId}`,
       notificationDisabled: false,
-    })
+    }
+    const comTel = tel.length === 10 || tel.length === 11 ? { ...dados, mobilePhone: tel } : dados
+    let c
+    try { c = await criarCustomer(comTel) }
+    catch (e) {
+      // telefone recusado pelo Asaas → cria sem telefone (não trava a venda)
+      if (/celular|phone|telefone/i.test(e instanceof Error ? e.message : '')) c = await criarCustomer(dados)
+      else throw e
+    }
     customerId = c.id
     if (pedido.user_id) await service.from('perfis').update({ asaas_customer_id: customerId }).eq('id', pedido.user_id)
   }
