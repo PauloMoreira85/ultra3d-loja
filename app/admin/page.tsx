@@ -7,7 +7,8 @@ type Pedido = {
   id: string; codigo: number; origem: string; status: string; forma_pagamento: string | null
   subtotal: number; frete: number; total: number
   cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
-  cidade: string | null; uf: string | null; frete_rastreio: string | null
+  cep: string | null; cidade: string | null; uf: string | null
+  frete_rastreio: string | null; frete_etiqueta_url: string | null
   observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
 type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
@@ -243,6 +244,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                   </div>
                 </div>
                 {cobrarId === p.id && <CobrancaBox pedido={p} />}
+                {['pago', 'em_producao', 'enviado'].includes(p.status) && p.cep && <EtiquetaBox pedido={p} />}
               </div>
             )
           })}
@@ -449,6 +451,38 @@ function Custos() {
         </table>
       </div>
       <p className="text-xs text-[#15153f]/45 mt-2">Editar peso/tempo/preço salva na hora. “Sugerido” aplica o preço calculado ao produto.</p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- ETIQUETA (Melhor Envio)
+function EtiquetaBox({ pedido }: { pedido: Pedido }) {
+  const [url, setUrl] = useState<string | null>(pedido.frete_etiqueta_url)
+  const [rastreio, setRastreio] = useState<string | null>(pedido.frete_rastreio)
+  const [gerando, setGerando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function gerar() {
+    setGerando(true); setErro('')
+    const { ok, j } = await api(`/api/admin/pedidos/${pedido.id}/etiqueta`, { method: 'POST' })
+    setGerando(false)
+    if (!ok) { setErro((j.error as string) || 'falha'); return }
+    setUrl(j.etiqueta_url as string); setRastreio((j.rastreio as string) || null)
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#15153f]/10 text-sm flex flex-wrap items-center gap-3">
+      {url ? (
+        <>
+          <a href={url} target="_blank" rel="noreferrer" className="rounded-full bg-[#805ad5] text-white font-bold px-4 py-1.5 text-xs">📄 Etiqueta (PDF)</a>
+          {rastreio && <span className="text-xs text-[#15153f]/60">rastreio: <b>{rastreio}</b></span>}
+        </>
+      ) : (
+        <button onClick={gerar} disabled={gerando} className="rounded-full border border-[#805ad5] text-[#805ad5] font-bold px-4 py-1.5 text-xs hover:bg-[#805ad5]/10 disabled:opacity-50">
+          {gerando ? 'gerando etiqueta…' : '🏷️ Gerar etiqueta Melhor Envio'}
+        </button>
+      )}
+      {erro && <span className="text-xs text-red-600">{erro}</span>}
     </div>
   )
 }

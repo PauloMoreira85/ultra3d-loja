@@ -1,20 +1,14 @@
 'use client'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import { brl } from '@/lib/supabase'
 import { useCart } from '@/lib/cart'
 
-const WHATSAPP = '5500000000000' // TODO: trocar pelo número real da Ultra 3D
-
 export default function Carrinho() {
   const { items, setQtd, remove } = useCart()
+  const router = useRouter()
   const subtotal = items.reduce((s, x) => s + x.produto.preco * x.qtd, 0)
-
-  const pedirWhats = () => {
-    const linhas = items.map(x => `- ${x.qtd}x ${x.produto.nome} (${brl(x.produto.preco * x.qtd)})`).join('\n')
-    const msg = `Olá! Quero fazer um pedido na Ultra 3D Brasil:\n\n${linhas}\n\nSubtotal: ${brl(subtotal)}`
-    window.open(`https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}`, '_blank')
-  }
 
   return (
     <>
@@ -55,8 +49,8 @@ export default function Carrinho() {
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t-2 border-[#333389] bg-[#faf9f5] p-4">
           <div className="max-w-3xl mx-auto">
             <div className="flex justify-between text-lg font-extrabold text-[#333389]"><span>Subtotal</span><span>{brl(subtotal)}</span></div>
-            <button onClick={pedirWhats} className="mt-3 w-full rounded-xl bg-[#25d366] text-white font-bold px-4 py-3 active:scale-95 transition">Finalizar pelo WhatsApp</button>
-            <p className="text-center text-[11px] text-[#6f6d86] mt-2">Pagamento e frete combinados no WhatsApp — checkout automático (Pix/cartão + Melhor Envio) em breve.</p>
+            <button onClick={() => router.push('/checkout')} className="mt-3 w-full rounded-xl bg-[#15153f] text-white font-bold px-4 py-3 hover:bg-[#333389] active:scale-95 transition">Finalizar compra →</button>
+            <p className="text-center text-[11px] text-[#6f6d86] mt-2">Frete calculado no próximo passo · pagamento por Pix, boleto ou cartão.</p>
           </div>
         </div>
       )}
