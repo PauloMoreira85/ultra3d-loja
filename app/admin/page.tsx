@@ -6,10 +6,11 @@ type Item = { id: string; produto_id: string | null; descricao: string; quantida
 type Pedido = {
   id: string; codigo: number; origem: string; status: string; forma_pagamento: string | null
   subtotal: number; frete: number; total: number
-  cliente_nome: string | null; cliente_telefone: string | null
+  cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
   cidade: string | null; uf: string | null; frete_rastreio: string | null
   observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
+type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
 
 const STATUS: { v: string; label: string; cor: string }[] = [
   { v: 'aguardando_pagamento', label: 'Aguardando pgto', cor: '#b7791f' },
@@ -26,9 +27,80 @@ const PAG = [
 ]
 const fmtData = (s: string) => new Date(s).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 
+/** fetch helper — cookie de sessão vai automático (same-origin). */
+async function api(path: string, opts: RequestInit = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers ?? {}) } })
+  let j: Record<string, unknown> = {}
+  try { j = await r.json() } catch { /* vazio */ }
+  return { ok: r.ok, status: r.status, j }
+}
+
 export default function Admin() {
-  const [senha, setSenha] = useState('')
-  const [autorizado, setAutorizado] = useState(false)
+  const [sessao, setSessao] = useState<Sessao | null>(null)
+  const [checando, setChecando] = useState(true)
+
+  useEffect(() => {
+    api('/api/admin/me').then(({ ok, j }) => { if (ok) setSessao(j as Sessao); setChecando(false) })
+  }, [])
+
+  if (checando) return <div className="min-h-screen grid place-items-center bg-[#faf9f5] text-[#15153f]/50">carregando…</div>
+  if (!sessao) return <Login onLogin={setSessao} />
+  return <Painel sessao={sessao} onLogout={() => setSessao(null)} />
+}
+
+// ---------------------------------------------------------------- LOGIN
+function Login({ onLogin }: { onLogin: (s: Sessao) => void }) {
+  const [modo, setModo] = useState<'pin' | 'dono'>('pin')
+  const [nome, setNome] = useState('')
+  const [pin, setPin] = useState('')
+  const [master, setMaster] = useState('')
+  const [erro, setErro] = useState('')
+  const [carregando, setCarregando] = useState(false)
+
+  async function entrar() {
+    setErro(''); setCarregando(true)
+    const body = modo === 'dono' ? { master } : { nome, pin }
+    const { ok, j } = await api('/api/admin/login', { method: 'POST', body: JSON.stringify(body) })
+    setCarregando(false)
+    if (ok) onLogin(j as Sessao); else setErro((j.error as string) || 'falha no login')
+  }
+
+  return (
+    <div className="min-h-screen grid place-items-center bg-[#faf9f5] p-6">
+      <div className="w-full max-w-sm rounded-2xl bg-white border border-[#15153f]/10 p-7 text-center shadow-sm">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-ultra.png" alt="Ultra 3D Brasil" className="h-11 mx-auto mb-5" />
+        <h1 className="serif text-2xl font-semibold text-[#15153f]">Painel / PDV</h1>
+        <p className="text-sm text-[#15153f]/55 mt-1 mb-5">{modo === 'dono' ? 'Acesso do dono' : 'Entre com seu nome e PIN'}</p>
+
+        {modo === 'pin' ? (
+          <>
+            <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Seu nome"
+              className="w-full rounded-lg border border-[#15153f]/15 px-4 py-2.5 mb-3 outline-none focus:border-[#C9A86A]" />
+            <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={6} type="password"
+              onKeyDown={e => e.key === 'Enter' && entrar()} placeholder="PIN"
+              className="w-full rounded-lg border border-[#15153f]/15 px-4 py-2.5 mb-3 outline-none focus:border-[#C9A86A] tracking-[0.4em] text-center" />
+          </>
+        ) : (
+          <input value={master} onChange={e => setMaster(e.target.value)} type="password" onKeyDown={e => e.key === 'Enter' && entrar()}
+            placeholder="Senha mestra" className="w-full rounded-lg border border-[#15153f]/15 px-4 py-2.5 mb-3 outline-none focus:border-[#C9A86A]" />
+        )}
+
+        <button onClick={entrar} disabled={carregando} className="w-full rounded-lg bg-[#15153f] text-white font-bold py-2.5 hover:bg-[#333389] transition disabled:opacity-50">
+          {carregando ? 'entrando…' : 'Entrar'}
+        </button>
+        {erro && <p className="text-sm text-red-600 mt-3">{erro}</p>}
+        <button onClick={() => { setModo(modo === 'pin' ? 'dono' : 'pin'); setErro('') }} className="mt-4 text-xs font-semibold text-[#333389]">
+          {modo === 'pin' ? 'Sou o dono (senha mestra)' : '← Voltar pro login por PIN'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- PAINEL
+function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) {
+  const dono = sessao.papel === 'dono'
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [loading, setLoading] = useState(false)
@@ -36,48 +108,33 @@ export default function Admin() {
   const [fStatus, setFStatus] = useState('')
   const [fOrigem, setFOrigem] = useState('')
   const [novo, setNovo] = useState(false)
+  const [equipe, setEquipe] = useState(false)
+  const [cobrarId, setCobrarId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const s = localStorage.getItem('u3d_admin')
-    if (s) { setSenha(s); setAutorizado(true) }
-  }, [])
-
-  const carregar = useCallback(async (s: string) => {
+  const carregar = useCallback(async () => {
     setLoading(true); setErro('')
-    try {
-      const qs = new URLSearchParams()
-      if (fStatus) qs.set('status', fStatus)
-      if (fOrigem) qs.set('origem', fOrigem)
-      const r = await fetch('/api/admin/pedidos?' + qs, { headers: { 'x-admin-senha': s } })
-      const j = await r.json()
-      if (!r.ok) throw new Error(j.error || 'erro')
-      setPedidos(j.pedidos)
-    } catch (e) { setErro(e instanceof Error ? e.message : 'erro') }
+    const qs = new URLSearchParams()
+    if (fStatus) qs.set('status', fStatus)
+    if (fOrigem) qs.set('origem', fOrigem)
+    const { ok, j } = await api('/api/admin/pedidos?' + qs)
+    if (ok) setPedidos(j.pedidos as Pedido[]); else setErro((j.error as string) || 'erro')
     setLoading(false)
   }, [fStatus, fOrigem])
 
   useEffect(() => {
-    if (!autorizado) return
-    carregar(senha)
+    carregar()
     supabase.from('produtos').select('*').eq('ativo', true).order('nome').then(({ data }) => setProdutos((data ?? []) as Produto[]))
-  }, [autorizado, carregar, senha])
+  }, [carregar])
 
-  async function entrar() {
-    setErro('')
-    const r = await fetch('/api/admin/ping', { headers: { 'x-admin-senha': senha } })
-    if (r.ok) { localStorage.setItem('u3d_admin', senha); setAutorizado(true) }
-    else if (r.status === 401) setErro('Senha incorreta.')
-    else setErro('Painel não configurado (defina ADMIN_SENHA no Vercel).')
-  }
-
+  async function sair() { await api('/api/admin/me', { method: 'DELETE' }); onLogout() }
   async function mudarStatus(id: string, status: string) {
     setPedidos(ps => ps.map(p => p.id === id ? { ...p, status } : p))
-    await fetch('/api/admin/pedidos/' + id, { method: 'PATCH', headers: { 'x-admin-senha': senha, 'content-type': 'application/json' }, body: JSON.stringify({ status }) })
+    await api('/api/admin/pedidos/' + id, { method: 'PATCH', body: JSON.stringify({ status }) })
   }
   async function apagar(id: string) {
     if (!confirm('Apagar este pedido?')) return
-    await fetch('/api/admin/pedidos/' + id, { method: 'DELETE', headers: { 'x-admin-senha': senha } })
-    setPedidos(ps => ps.filter(p => p.id !== id))
+    const { ok, j } = await api('/api/admin/pedidos/' + id, { method: 'DELETE' })
+    if (ok) setPedidos(ps => ps.filter(p => p.id !== id)); else alert((j.error as string) || 'erro')
   }
 
   const metricas = useMemo(() => {
@@ -88,44 +145,32 @@ export default function Admin() {
     return { receita, aguardando, produzir, total: pedidos.length }
   }, [pedidos])
 
-  if (!autorizado) return (
-    <div className="min-h-screen grid place-items-center bg-[#faf9f5] p-6">
-      <div className="w-full max-w-sm rounded-2xl bg-white border border-[#15153f]/10 p-7 text-center shadow-sm">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-ultra.png" alt="Ultra 3D Brasil" className="h-11 mx-auto mb-5" />
-        <h1 className="serif text-2xl font-semibold text-[#15153f]">Painel / PDV</h1>
-        <p className="text-sm text-[#15153f]/55 mt-1 mb-5">Acesso restrito</p>
-        <input type="password" value={senha} onChange={e => setSenha(e.target.value)} onKeyDown={e => e.key === 'Enter' && entrar()}
-          placeholder="Senha do painel" className="w-full rounded-lg border border-[#15153f]/15 px-4 py-2.5 mb-3 outline-none focus:border-[#C9A86A]" />
-        <button onClick={entrar} className="w-full rounded-lg bg-[#15153f] text-white font-bold py-2.5 hover:bg-[#333389] transition">Entrar</button>
-        {erro && <p className="text-sm text-red-600 mt-3">{erro}</p>}
-      </div>
-    </div>
-  )
-
   return (
     <div className="min-h-screen bg-[#faf9f5]">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-[#15153f]/10">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo-ultra.png" alt="" className="h-8" />
-            <span className="serif text-xl font-semibold text-[#15153f]">Painel / PDV</span>
+            <span className="serif text-xl font-semibold text-[#15153f] hidden sm:inline">Painel / PDV</span>
           </div>
-          <button onClick={() => setNovo(true)} className="rounded-full bg-[#C9A86A] text-[#15153f] font-bold px-5 py-2.5 text-sm hover:bg-[#b8955a] transition">+ Pedido manual</button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#15153f]/55 hidden sm:inline">{sessao.nome}{dono ? ' · dono' : ''}</span>
+            {dono && <button onClick={() => setEquipe(true)} className="rounded-full border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Equipe</button>}
+            <button onClick={() => setNovo(true)} className="rounded-full bg-[#C9A86A] text-[#15153f] font-bold px-4 py-2 text-sm hover:bg-[#b8955a] transition">+ Pedido</button>
+            <button onClick={sair} className="text-xs text-[#15153f]/45 hover:text-red-600 px-1">sair</button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-5 py-6">
-        {/* métricas */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <Card titulo="Receita (pagos)" valor={brl(metricas.receita)} />
-          <Card titulo="A produzir" valor={String(metricas.produzir)} />
-          <Card titulo="Aguardando pgto" valor={String(metricas.aguardando)} />
-          <Card titulo="Total de pedidos" valor={String(metricas.total)} />
+        <div className={`grid grid-cols-2 ${dono ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3 mb-6`}>
+          {dono && <CardM titulo="Receita (pagos)" valor={brl(metricas.receita)} />}
+          <CardM titulo="A produzir" valor={String(metricas.produzir)} />
+          <CardM titulo="Aguardando pgto" valor={String(metricas.aguardando)} />
+          <CardM titulo="Total de pedidos" valor={String(metricas.total)} />
         </div>
 
-        {/* filtros */}
         <div className="flex flex-wrap gap-2 items-center mb-4">
           <select value={fStatus} onChange={e => setFStatus(e.target.value)} className="rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm bg-white">
             <option value="">Todos os status</option>
@@ -136,12 +181,11 @@ export default function Admin() {
             <option value="site">Só site</option>
             <option value="manual">Só manual</option>
           </select>
-          <button onClick={() => carregar(senha)} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Atualizar</button>
+          <button onClick={carregar} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Atualizar</button>
           {loading && <span className="text-sm text-[#15153f]/50">carregando…</span>}
           {erro && <span className="text-sm text-red-600">{erro}</span>}
         </div>
 
-        {/* lista */}
         <div className="space-y-3">
           {pedidos.map(p => {
             const si = statusInfo(p.status)
@@ -177,9 +221,15 @@ export default function Admin() {
                       className="mt-2 rounded-full text-xs font-bold px-3 py-1.5 text-white border-0 cursor-pointer" style={{ background: si.cor }}>
                       {STATUS.map(s => <option key={s.v} value={s.v} style={{ background: '#fff', color: '#15153f' }}>{s.label}</option>)}
                     </select>
-                    <button onClick={() => apagar(p.id)} className="block ml-auto mt-2 text-[11px] text-[#15153f]/40 hover:text-red-600">apagar</button>
+                    <div className="flex items-center gap-3 justify-end mt-2">
+                      {p.status !== 'pago' && p.status !== 'entregue' && (
+                        <button onClick={() => setCobrarId(cobrarId === p.id ? null : p.id)} className="text-xs font-bold text-[#333389] hover:underline">💳 Cobrança</button>
+                      )}
+                      {dono && <button onClick={() => apagar(p.id)} className="text-[11px] text-[#15153f]/40 hover:text-red-600">apagar</button>}
+                    </div>
                   </div>
                 </div>
+                {cobrarId === p.id && <CobrancaBox pedido={p} />}
               </div>
             )
           })}
@@ -187,12 +237,13 @@ export default function Admin() {
         </div>
       </main>
 
-      {novo && <NovoPedido produtos={produtos} senha={senha} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar(senha) }} />}
+      {novo && <NovoPedido produtos={produtos} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar() }} />}
+      {equipe && <Equipe onClose={() => setEquipe(false)} />}
     </div>
   )
 }
 
-function Card({ titulo, valor }: { titulo: string; valor: string }) {
+function CardM({ titulo, valor }: { titulo: string; valor: string }) {
   return (
     <div className="rounded-2xl bg-white border border-[#15153f]/8 p-4">
       <div className="text-[11px] uppercase tracking-wide text-[#15153f]/45 font-semibold">{titulo}</div>
@@ -201,9 +252,75 @@ function Card({ titulo, valor }: { titulo: string; valor: string }) {
   )
 }
 
+// ---------------------------------------------------------------- COBRANÇA
+function CobrancaBox({ pedido }: { pedido: Pedido }) {
+  const [forma, setForma] = useState<'pix' | 'boleto' | 'cartao'>('pix')
+  const [cpf, setCpf] = useState(pedido.cliente_cpf || '')
+  const [gerando, setGerando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [res, setRes] = useState<{ invoiceUrl: string | null; pix?: { base64: string; copiaCola: string } | null; boleto?: { url: string | null; linhaDigitavel: string | null } | null } | null>(null)
+
+  async function gerar() {
+    setGerando(true); setErro(''); setRes(null)
+    const { ok, j } = await api(`/api/admin/pedidos/${pedido.id}/cobranca`, { method: 'POST', body: JSON.stringify({ forma, cliente_cpf: cpf || undefined }) })
+    setGerando(false)
+    if (!ok) { setErro((j.error as string) || 'falha'); return }
+    setRes(j as typeof res)
+  }
+  const copiar = (t: string) => navigator.clipboard?.writeText(t)
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#15153f]/10">
+      {!res && (
+        <div className="flex flex-wrap items-end gap-2">
+          <select value={forma} onChange={e => setForma(e.target.value as 'pix' | 'boleto' | 'cartao')} className="rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm bg-white">
+            <option value="pix">Pix</option><option value="boleto">Boleto</option><option value="cartao">Cartão (link)</option>
+          </select>
+          <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="CPF/CNPJ do cliente"
+            className="rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm outline-none focus:border-[#C9A86A]" />
+          <button onClick={gerar} disabled={gerando} className="rounded-full bg-[#333389] text-white font-bold px-5 py-2 text-sm hover:bg-[#15153f] disabled:opacity-50">
+            {gerando ? 'gerando…' : 'Gerar cobrança'}
+          </button>
+          {erro && <span className="text-sm text-red-600">{erro}</span>}
+        </div>
+      )}
+      {res && (
+        <div className="text-sm space-y-2">
+          {res.pix?.copiaCola && (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {res.pix.base64 && <img src={`data:image/png;base64,${res.pix.base64}`} alt="QR Pix" className="h-28 w-28 rounded-lg border" />}
+              <div className="min-w-0">
+                <div className="font-bold text-[#15153f]">Pix copia-e-cola</div>
+                <div className="text-xs text-[#15153f]/60 break-all line-clamp-2">{res.pix.copiaCola}</div>
+                <button onClick={() => copiar(res.pix!.copiaCola)} className="mt-1 text-xs font-bold text-[#333389]">copiar código</button>
+              </div>
+            </div>
+          )}
+          {res.boleto && (
+            <div>
+              <div className="font-bold text-[#15153f]">Boleto</div>
+              {res.boleto.linhaDigitavel && <div className="text-xs text-[#15153f]/70 break-all">{res.boleto.linhaDigitavel} <button onClick={() => copiar(res.boleto!.linhaDigitavel!)} className="font-bold text-[#333389]">copiar</button></div>}
+              {res.boleto.url && <a href={res.boleto.url} target="_blank" rel="noreferrer" className="text-xs font-bold text-[#333389] underline">abrir PDF do boleto</a>}
+            </div>
+          )}
+          {res.invoiceUrl && (
+            <div>
+              <a href={res.invoiceUrl} target="_blank" rel="noreferrer" className="inline-block rounded-full bg-[#C9A86A] text-[#15153f] font-bold px-4 py-1.5 text-xs">Página de pagamento</a>
+              <button onClick={() => copiar(res.invoiceUrl!)} className="ml-2 text-xs font-bold text-[#333389]">copiar link p/ enviar ao cliente</button>
+            </div>
+          )}
+          <p className="text-xs text-[#15153f]/45">O status vira “pago” sozinho quando o Asaas confirmar (webhook).</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- NOVO PEDIDO
 type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number }
 
-function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]; senha: string; onClose: () => void; onSalvo: () => void }) {
+function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClose: () => void; onSalvo: () => void }) {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [busca, setBusca] = useState('')
   const [cliente, setCliente] = useState('')
@@ -239,13 +356,9 @@ function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]
   async function salvar() {
     if (!linhas.length) { setErro('adicione ao menos 1 item'); return }
     setSalvando(true); setErro('')
-    const r = await fetch('/api/admin/pedidos', {
-      method: 'POST', headers: { 'x-admin-senha': senha, 'content-type': 'application/json' },
-      body: JSON.stringify({ itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs }),
-    })
-    const j = await r.json()
+    const { ok, j } = await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify({ itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs }) })
     setSalvando(false)
-    if (!r.ok) { setErro(j.error || 'erro'); return }
+    if (!ok) { setErro((j.error as string) || 'erro'); return }
     onSalvo()
   }
 
@@ -257,7 +370,6 @@ function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]
           <button onClick={onClose} className="text-2xl text-[#15153f]/40 leading-none">×</button>
         </div>
         <div className="p-5 space-y-4">
-          {/* buscar produto */}
           <div>
             <label className="text-xs font-semibold text-[#15153f]/60">Adicionar produto</label>
             <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar no catálogo…"
@@ -275,7 +387,6 @@ function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]
             <button onClick={addLivre} className="mt-2 text-sm text-[#333389] font-semibold">+ item avulso</button>
           </div>
 
-          {/* linhas */}
           {linhas.length > 0 && (
             <div className="space-y-2">
               {linhas.map((l, i) => (
@@ -292,7 +403,6 @@ function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]
             </div>
           )}
 
-          {/* cliente + pagamento */}
           <div className="grid grid-cols-2 gap-2">
             <input value={cliente} onChange={e => setCliente(e.target.value)} placeholder="Nome do cliente" className="rounded-lg border border-[#15153f]/15 px-3 py-2 outline-none focus:border-[#C9A86A]" />
             <input value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="Telefone" className="rounded-lg border border-[#15153f]/15 px-3 py-2 outline-none focus:border-[#C9A86A]" />
@@ -315,6 +425,84 @@ function NovoPedido({ produtos, senha, onClose, onSalvo }: { produtos: Produto[]
           <button onClick={salvar} disabled={salvando} className="rounded-full bg-[#15153f] text-white font-bold px-7 py-3 hover:bg-[#333389] transition disabled:opacity-50">
             {salvando ? 'salvando…' : 'Salvar pedido'}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- EQUIPE (só dono)
+type Func = { id: string; nome: string; papel: string; ativo: boolean }
+
+function Equipe({ onClose }: { onClose: () => void }) {
+  const [lista, setLista] = useState<Func[]>([])
+  const [nome, setNome] = useState('')
+  const [pin, setPin] = useState('')
+  const [papel, setPapel] = useState('funcionario')
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  const carregar = useCallback(async () => {
+    const { ok, j } = await api('/api/admin/funcionarios')
+    if (ok) setLista(j.funcionarios as Func[])
+  }, [])
+  useEffect(() => { carregar() }, [carregar])
+
+  async function add() {
+    setErro('')
+    if (!/^\d{4,6}$/.test(pin)) { setErro('PIN de 4 a 6 dígitos'); return }
+    setSalvando(true)
+    const { ok, j } = await api('/api/admin/funcionarios', { method: 'POST', body: JSON.stringify({ nome, pin, papel }) })
+    setSalvando(false)
+    if (!ok) { setErro((j.error as string) || 'erro'); return }
+    setNome(''); setPin(''); setPapel('funcionario'); carregar()
+  }
+  async function toggle(f: Func) { await api('/api/admin/funcionarios/' + f.id, { method: 'PATCH', body: JSON.stringify({ ativo: !f.ativo }) }); carregar() }
+  async function novoPin(f: Func) {
+    const p = prompt('Novo PIN (4 a 6 dígitos) para ' + f.nome)
+    if (!p) return
+    const { ok, j } = await api('/api/admin/funcionarios/' + f.id, { method: 'PATCH', body: JSON.stringify({ pin: p }) })
+    if (!ok) alert((j.error as string) || 'erro')
+  }
+  async function remover(f: Func) { if (!confirm('Remover ' + f.nome + '?')) return; await api('/api/admin/funcionarios/' + f.id, { method: 'DELETE' }); carregar() }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 grid place-items-end sm:place-items-center p-0 sm:p-6" onClick={onClose}>
+      <div className="w-full sm:max-w-lg bg-[#faf9f5] rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-[#faf9f5] px-5 pt-5 pb-3 border-b border-[#15153f]/10 flex items-center justify-between">
+          <h2 className="serif text-xl font-semibold text-[#15153f]">Equipe</h2>
+          <button onClick={onClose} className="text-2xl text-[#15153f]/40 leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="rounded-xl bg-white border border-[#15153f]/10 p-3 space-y-2">
+            <div className="text-xs font-semibold text-[#15153f]/60">Adicionar pessoa</div>
+            <div className="flex flex-wrap gap-2">
+              <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome" className="flex-1 min-w-[120px] rounded-lg border border-[#15153f]/15 px-3 py-2 outline-none focus:border-[#C9A86A]" />
+              <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} maxLength={6} inputMode="numeric" placeholder="PIN" className="w-24 rounded-lg border border-[#15153f]/15 px-3 py-2 text-center tracking-widest outline-none focus:border-[#C9A86A]" />
+              <select value={papel} onChange={e => setPapel(e.target.value)} className="rounded-lg border border-[#15153f]/15 px-3 py-2 bg-white">
+                <option value="funcionario">Funcionário</option><option value="dono">Dono</option>
+              </select>
+              <button onClick={add} disabled={salvando} className="rounded-full bg-[#15153f] text-white font-bold px-5 py-2 text-sm hover:bg-[#333389] disabled:opacity-50">Adicionar</button>
+            </div>
+            {erro && <p className="text-sm text-red-600">{erro}</p>}
+          </div>
+
+          <div className="space-y-2">
+            {lista.map(f => (
+              <div key={f.id} className={`flex items-center justify-between rounded-xl bg-white border border-[#15153f]/10 p-3 ${f.ativo ? '' : 'opacity-50'}`}>
+                <div>
+                  <div className="font-semibold text-[#15153f]">{f.nome} {f.papel === 'dono' && <span className="text-[10px] font-bold text-[#C9A86A]">DONO</span>}</div>
+                  <div className="text-xs text-[#15153f]/45">{f.ativo ? 'ativo' : 'inativo'}</div>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-semibold">
+                  <button onClick={() => novoPin(f)} className="text-[#333389]">trocar PIN</button>
+                  <button onClick={() => toggle(f)} className="text-[#15153f]/60">{f.ativo ? 'desativar' : 'ativar'}</button>
+                  <button onClick={() => remover(f)} className="text-[#15153f]/40 hover:text-red-600">remover</button>
+                </div>
+              </div>
+            ))}
+            {!lista.length && <p className="text-center text-sm text-[#15153f]/40 py-6">Nenhum funcionário ainda. O dono entra pela senha mestra.</p>}
+          </div>
         </div>
       </div>
     </div>

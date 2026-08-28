@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { isAdmin } from '@/lib/adminAuth'
+import { isStaff } from '@/lib/adminAuth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,7 +12,7 @@ function svc() {
 
 // GET /api/admin/pedidos?status=&origem=  → lista pedidos + itens
 export async function GET(req: Request) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
+  if (!isStaff(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')
   const origem = searchParams.get('origem')
@@ -36,7 +36,7 @@ type ItemInput = { produto_id?: string | null; descricao: string; quantidade: nu
 
 // POST /api/admin/pedidos  → cria pedido MANUAL (venda direta / PDV)
 export async function POST(req: Request) {
-  if (!isAdmin(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
+  if (!isStaff(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
 
