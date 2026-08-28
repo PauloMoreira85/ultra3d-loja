@@ -166,7 +166,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
 
       <nav className="max-w-6xl mx-auto px-5 pt-4">
         <div className="inline-flex rounded-full bg-white border border-[#15153f]/10 p-1 gap-1">
-          {([['pedidos', 'Pedidos'], ['fila', 'Fila de produção'], ...(dono ? [['custos', 'Custos']] : [])] as [string, string][]).map(([v, label]) => (
+          {([['pedidos', 'Pedidos'], ['fila', 'Fila de produção'], ['custos', 'Custos']] as [string, string][]).map(([v, label]) => (
             <button key={v} onClick={() => setAba(v as typeof aba)}
               className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${aba === v ? 'bg-[#15153f] text-white' : 'text-[#15153f]/60 hover:text-[#333389]'}`}>{label}</button>
           ))}
@@ -175,7 +175,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
 
       <main className="max-w-6xl mx-auto px-5 py-6">
         {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} />}
-        {aba === 'custos' && dono && <Custos />}
+        {aba === 'custos' && <Custos />}
         {aba === 'pedidos' && <>
         <div className={`grid grid-cols-2 ${dono ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3 mb-6`}>
           {dono && <CardM titulo="Receita (pagos)" valor={brl(metricas.receita)} />}

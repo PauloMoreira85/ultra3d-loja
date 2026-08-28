@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { isStaff, isDono } from '@/lib/adminAuth'
+import { isStaff } from '@/lib/adminAuth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,9 +22,9 @@ export async function GET(req: Request) {
   return NextResponse.json({ config: data })
 }
 
-// PATCH → salva parâmetros (só dono)
+// PATCH → salva parâmetros (staff pode calcular/ajustar)
 export async function PATCH(req: Request) {
-  if (!isDono(req)) return NextResponse.json({ error: 'só o dono' }, { status: 403 })
+  if (!isStaff(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }

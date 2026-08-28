@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseServer'
-import { isDono } from '@/lib/adminAuth'
+import { isStaff } from '@/lib/adminAuth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,7 +9,7 @@ const CAMPOS = new Set(['peso_g', 'tempo_impressao_h', 'preco', 'material', 'ati
 
 // PATCH /api/admin/produtos/:id → edita custo/preço do produto (só dono)
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (!isDono(req)) return NextResponse.json({ error: 'só o dono' }, { status: 403 })
+  if (!isStaff(req)) return NextResponse.json({ error: 'não autorizado' }, { status: 401 })
   const { id } = await ctx.params
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
