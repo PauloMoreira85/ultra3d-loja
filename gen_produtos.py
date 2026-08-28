@@ -92,5 +92,22 @@ for p in produtos:
 lines.append("]")
 open(os.path.join(LOJA, "lib", "demo.ts"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
 
+# escreve supabase/seed.sql (catalogo real -> banco). Idempotente: apaga e reinsere.
+def sq(s): return s.replace("'", "''")
+sql = ["-- GERADO por gen_produtos.py. Reseed do catalogo (apaga e reinsere).",
+       "delete from itens_pedido where produto_id is not null;",
+       "delete from produtos;", "delete from categorias;"]
+sql.append("insert into categorias (nome, ordem) values")
+sql.append(",\n".join(f"  ('{sq(c)}', {i})" for i, c in enumerate(cats, 1)) + ";")
+sql.append("insert into produtos (categoria_id, nome, preco, foto_url, sku, material) values")
+rows = []
+for p in produtos:
+    rows.append(f"  ((select id from categorias where nome='{sq(p['categoria'])}'), "
+                f"'{sq(p['nome'])}', {p['preco']}, '{sq(p['foto'])}', '{sq(p['id'])}', 'PLA')")
+sql.append(",\n".join(rows) + ";")
+seed_dir = os.path.join(LOJA, "supabase")
+os.makedirs(seed_dir, exist_ok=True)
+open(os.path.join(seed_dir, "seed.sql"), "w", encoding="utf-8").write("\n".join(sql) + "\n")
+
 print(f"OK — {len(produtos)} produtos em {len(cats)} categorias:")
 for c in cats: print(f"  {c}: {cats_usadas[c]}")

@@ -3,8 +3,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 let _c: SupabaseClient | null = null
 function getClient(): SupabaseClient {
   if (!_c) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+    // URL + anon key são públicas (seguras no client). Fallback = projeto ultra3d-loja.
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://feonykqatexoplqtpqla.supabase.co'
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZlb255a3FhdGV4b3BscXRwcWxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MjE1MzUsImV4cCI6MjEwMzQ5NzUzNX0.L5RykORCBJjyjc6t3yEG2yoV2b6k1CpsBtmZaNHME1c'
     _c = createClient(url, key)
   }
   return _c
