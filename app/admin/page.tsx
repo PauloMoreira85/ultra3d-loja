@@ -110,6 +110,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const [novo, setNovo] = useState(false)
   const [equipe, setEquipe] = useState(false)
   const [cobrarId, setCobrarId] = useState<string | null>(null)
+  const [aba, setAba] = useState<'pedidos' | 'fila' | 'custos'>('pedidos')
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
@@ -163,7 +164,19 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
         </div>
       </header>
 
+      <nav className="max-w-6xl mx-auto px-5 pt-4">
+        <div className="inline-flex rounded-full bg-white border border-[#15153f]/10 p-1 gap-1">
+          {([['pedidos', 'Pedidos'], ['fila', 'Fila de produção'], ...(dono ? [['custos', 'Custos']] : [])] as [string, string][]).map(([v, label]) => (
+            <button key={v} onClick={() => setAba(v as typeof aba)}
+              className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${aba === v ? 'bg-[#15153f] text-white' : 'text-[#15153f]/60 hover:text-[#333389]'}`}>{label}</button>
+          ))}
+        </div>
+      </nav>
+
       <main className="max-w-6xl mx-auto px-5 py-6">
+        {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} />}
+        {aba === 'custos' && dono && <Custos />}
+        {aba === 'pedidos' && <>
         <div className={`grid grid-cols-2 ${dono ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3 mb-6`}>
           {dono && <CardM titulo="Receita (pagos)" valor={brl(metricas.receita)} />}
           <CardM titulo="A produzir" valor={String(metricas.produzir)} />
@@ -235,6 +248,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
           })}
           {!loading && !pedidos.length && <p className="text-center text-[#15153f]/45 py-16">Nenhum pedido ainda.</p>}
         </div>
+        </>}
       </main>
 
       {novo && <NovoPedido produtos={produtos} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar() }} />}
@@ -248,6 +262,191 @@ function CardM({ titulo, valor }: { titulo: string; valor: string }) {
     <div className="rounded-2xl bg-white border border-[#15153f]/8 p-4">
       <div className="text-[11px] uppercase tracking-wide text-[#15153f]/45 font-semibold">{titulo}</div>
       <div className="serif text-2xl font-bold text-[#15153f] mt-1">{valor}</div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- FILA DE PRODUÇÃO
+function Fila({ pedidos, onStatus, onReload, loading }: { pedidos: Pedido[]; onStatus: (id: string, s: string) => void; onReload: () => void; loading: boolean }) {
+  const colunas: { status: string; titulo: string; cor: string; proximo?: string; acao?: string }[] = [
+    { status: 'pago', titulo: 'A produzir', cor: '#2f855a', proximo: 'em_producao', acao: '▶ Iniciar' },
+    { status: 'em_producao', titulo: 'Em produção', cor: '#3182ce', proximo: 'enviado', acao: '✓ Pronto / enviar' },
+    { status: 'enviado', titulo: 'Pronto / enviado', cor: '#805ad5', proximo: 'entregue', acao: '✓ Entregue' },
+  ]
+  const fifo = (s: string) => pedidos.filter(p => p.status === s).sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at))
+  const totalPecas = (p: Pedido) => (p.itens_pedido ?? []).reduce((s, i) => s + i.quantidade, 0)
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-[#15153f]/55">Ordem de chegada (mais antigo primeiro). Avance com os botões.</p>
+        <button onClick={onReload} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Atualizar</button>
+      </div>
+      <div className="grid md:grid-cols-3 gap-4">
+        {colunas.map(col => {
+          const lista = fifo(col.status)
+          return (
+            <div key={col.status} className="rounded-2xl bg-[#15153f]/[0.03] border border-[#15153f]/8 p-3">
+              <div className="flex items-center justify-between mb-3 px-1">
+                <span className="font-bold text-sm" style={{ color: col.cor }}>{col.titulo}</span>
+                <span className="text-xs font-bold text-white rounded-full px-2 py-0.5" style={{ background: col.cor }}>{lista.length}</span>
+              </div>
+              <div className="space-y-2">
+                {lista.map((p, i) => (
+                  <div key={p.id} className="rounded-xl bg-white border border-[#15153f]/10 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#15153f] text-sm">#{p.codigo} <span className="text-[#15153f]/40 font-normal">· {i + 1}º</span></span>
+                      <span className="text-[11px] text-[#15153f]/45">{fmtData(p.created_at)}</span>
+                    </div>
+                    <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}</div>
+                    <ul className="mt-1.5 text-sm text-[#15153f]/80 space-y-0.5">
+                      {p.itens_pedido?.map(it => <li key={it.id}>{it.quantidade}× {it.descricao}</li>)}
+                    </ul>
+                    {col.proximo && (
+                      <button onClick={() => onStatus(p.id, col.proximo!)}
+                        className="mt-2 w-full rounded-full text-white font-bold text-xs py-1.5 hover:opacity-90 transition" style={{ background: col.cor }}>
+                        {col.acao}
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {!lista.length && <p className="text-center text-xs text-[#15153f]/35 py-6">{loading ? '…' : 'vazio'}</p>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- CUSTOS
+type ConfigCustos = { filamento_kg: number; energia_kwh: number; potencia_w: number; falha_pct: number; mao_obra_hora: number; markup: number }
+
+function Custos() {
+  const [cfg, setCfg] = useState<ConfigCustos | null>(null)
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  const [busca, setBusca] = useState('')
+  const [salvandoCfg, setSalvandoCfg] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const carregar = useCallback(async () => {
+    const [{ ok, j }, prod] = await Promise.all([
+      api('/api/admin/config-custos'),
+      supabase.from('produtos').select('*').order('nome'),
+    ])
+    if (ok) setCfg(j.config as ConfigCustos)
+    setProdutos((prod.data ?? []) as Produto[])
+  }, [])
+  useEffect(() => { carregar() }, [carregar])
+
+  function calcCusto(p: Produto): number {
+    if (!cfg) return 0
+    const mat = (Number(p.peso_g) || 0) / 1000 * Number(cfg.filamento_kg)
+    const energia = (Number(p.tempo_impressao_h) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
+    const mao = (Number(p.tempo_impressao_h) || 0) * Number(cfg.mao_obra_hora)
+    const base = mat + energia + mao
+    return base * (1 + Number(cfg.falha_pct) / 100)
+  }
+  const sugerido = (p: Produto) => cfg ? Math.max(1, Math.round(calcCusto(p) * Number(cfg.markup))) : 0
+  const margem = (p: Produto) => { const c = calcCusto(p); return c > 0 ? ((Number(p.preco) - c) / Number(p.preco)) * 100 : 0 }
+
+  async function salvarCfg() {
+    if (!cfg) return
+    setSalvandoCfg(true); setMsg('')
+    const { ok } = await api('/api/admin/config-custos', { method: 'PATCH', body: JSON.stringify(cfg) })
+    setSalvandoCfg(false); setMsg(ok ? 'parâmetros salvos' : 'erro ao salvar')
+    setTimeout(() => setMsg(''), 2500)
+  }
+  function setLocal(id: string, patch: Partial<Produto>) { setProdutos(ps => ps.map(p => p.id === id ? { ...p, ...patch } : p)) }
+  async function updProduto(id: string, patch: Partial<Produto>) {
+    setLocal(id, patch)
+    await api('/api/admin/produtos/' + id, { method: 'PATCH', body: JSON.stringify(patch) })
+  }
+  function usarSugerido(p: Produto) { updProduto(p.id, { preco: sugerido(p) } as Partial<Produto>) }
+
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return q ? produtos.filter(p => p.nome.toLowerCase().includes(q)) : produtos
+  }, [busca, produtos])
+
+  const campoCfg = (k: keyof ConfigCustos, label: string, step = '0.01') => (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-[#15153f]/55">{label}</span>
+      <input type="number" step={step} value={cfg?.[k] ?? 0} onChange={e => setCfg(c => c ? { ...c, [k]: +e.target.value } : c)}
+        className="w-full rounded-lg border border-[#15153f]/15 px-2 py-1.5 text-sm outline-none focus:border-[#C9A86A]" />
+    </label>
+  )
+
+  if (!cfg) return <p className="text-[#15153f]/45 py-10 text-center">carregando…</p>
+
+  return (
+    <div>
+      <div className="rounded-2xl bg-white border border-[#15153f]/8 p-4 mb-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="serif text-lg font-semibold text-[#15153f]">Parâmetros de custo</h3>
+          <div className="flex items-center gap-3">
+            {msg && <span className="text-xs text-[#2f855a] font-semibold">{msg}</span>}
+            <button onClick={salvarCfg} disabled={salvandoCfg} className="rounded-full bg-[#15153f] text-white font-bold px-4 py-1.5 text-sm hover:bg-[#333389] disabled:opacity-50">Salvar</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {campoCfg('filamento_kg', 'Filamento R$/kg')}
+          {campoCfg('energia_kwh', 'Energia R$/kWh', '0.0001')}
+          {campoCfg('potencia_w', 'Potência (W)', '1')}
+          {campoCfg('falha_pct', 'Falhas (%)', '0.5')}
+          {campoCfg('mao_obra_hora', 'Mão de obra R$/h')}
+          {campoCfg('markup', 'Markup (×)', '0.1')}
+        </div>
+        <p className="text-xs text-[#15153f]/45 mt-2">Custo = filamento + energia + mão de obra, + % de falhas. Preço sugerido = custo × markup.</p>
+      </div>
+
+      <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar produto…"
+        className="w-full sm:w-72 rounded-lg border border-[#15153f]/15 px-3 py-2 mb-3 outline-none focus:border-[#C9A86A]" />
+
+      <div className="overflow-x-auto rounded-2xl border border-[#15153f]/8 bg-white">
+        <table className="w-full text-sm min-w-[720px]">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-[#15153f]/45 border-b border-[#15153f]/8">
+              <th className="p-3">Produto</th>
+              <th className="p-3 w-24">Peso (g)</th>
+              <th className="p-3 w-24">Tempo (h)</th>
+              <th className="p-3 w-24">Custo</th>
+              <th className="p-3 w-28">Preço</th>
+              <th className="p-3 w-20">Margem</th>
+              <th className="p-3 w-28">Sugerido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.map(p => {
+              const m = margem(p)
+              return (
+                <tr key={p.id} className="border-b border-[#15153f]/5 hover:bg-[#faf9f5]">
+                  <td className="p-3 font-semibold text-[#15153f]">{p.nome}</td>
+                  <td className="p-3">
+                    <input type="number" min={0} value={p.peso_g ?? 0} onChange={e => setLocal(p.id, { peso_g: +e.target.value })} onBlur={e => updProduto(p.id, { peso_g: +e.target.value })}
+                      className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" />
+                  </td>
+                  <td className="p-3">
+                    <input type="number" min={0} step="0.1" value={p.tempo_impressao_h ?? 0} onChange={e => setLocal(p.id, { tempo_impressao_h: +e.target.value } as Partial<Produto>)} onBlur={e => updProduto(p.id, { tempo_impressao_h: +e.target.value } as Partial<Produto>)}
+                      className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" />
+                  </td>
+                  <td className="p-3 text-[#15153f]/70">{brl(calcCusto(p))}</td>
+                  <td className="p-3">
+                    <input type="number" min={0} step="0.01" value={p.preco} onChange={e => setLocal(p.id, { preco: +e.target.value })} onBlur={e => updProduto(p.id, { preco: +e.target.value })}
+                      className="w-24 rounded border border-[#15153f]/10 px-2 py-1 text-right font-semibold text-[#333389]" />
+                  </td>
+                  <td className="p-3 font-bold" style={{ color: m < 40 ? '#c53030' : m < 60 ? '#b7791f' : '#2f855a' }}>{m.toFixed(0)}%</td>
+                  <td className="p-3">
+                    <button onClick={() => usarSugerido(p)} className="text-xs font-bold text-[#333389] hover:underline whitespace-nowrap">{brl(sugerido(p))} →</button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-[#15153f]/45 mt-2">Editar peso/tempo/preço salva na hora. “Sugerido” aplica o preço calculado ao produto.</p>
     </div>
   )
 }

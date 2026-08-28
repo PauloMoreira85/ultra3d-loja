@@ -20,7 +20,7 @@ export type Produto = {
   id: string; categoria_id: string | null; nome: string; descricao: string | null
   preco: number; sku: string | null; foto_url: string | null; material: string | null
   peso_g: number; comprimento_cm: number; largura_cm: number; altura_cm: number
-  estoque: number | null; ativo: boolean; ordem: number
+  tempo_impressao_h?: number; estoque: number | null; ativo: boolean; ordem: number
 }
 
 export type ConfigLoja = {
