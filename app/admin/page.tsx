@@ -323,6 +323,15 @@ function Fila({ pedidos, onStatus, onReload, loading }: { pedidos: Pedido[]; onS
 // ---------------------------------------------------------------- CUSTOS
 type ConfigCustos = { filamento_kg: number; energia_kwh: number; potencia_w: number; falha_pct: number; mao_obra_hora: number; markup: number }
 
+/** custo de impressão a partir de peso (g) e tempo (h) usando os parâmetros globais. */
+function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number): number {
+  if (!cfg) return 0
+  const mat = (Number(pesoG) || 0) / 1000 * Number(cfg.filamento_kg)
+  const energia = (Number(tempoH) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
+  const mao = (Number(tempoH) || 0) * Number(cfg.mao_obra_hora)
+  return (mat + energia + mao) * (1 + Number(cfg.falha_pct) / 100)
+}
+
 function Custos() {
   const [cfg, setCfg] = useState<ConfigCustos | null>(null)
   const [produtos, setProdutos] = useState<Produto[]>([])
@@ -340,14 +349,7 @@ function Custos() {
   }, [])
   useEffect(() => { carregar() }, [carregar])
 
-  function calcCusto(p: Produto): number {
-    if (!cfg) return 0
-    const mat = (Number(p.peso_g) || 0) / 1000 * Number(cfg.filamento_kg)
-    const energia = (Number(p.tempo_impressao_h) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
-    const mao = (Number(p.tempo_impressao_h) || 0) * Number(cfg.mao_obra_hora)
-    const base = mat + energia + mao
-    return base * (1 + Number(cfg.falha_pct) / 100)
-  }
+  const calcCusto = (p: Produto) => calcularCusto(cfg, Number(p.peso_g), Number(p.tempo_impressao_h))
   const sugerido = (p: Produto) => cfg ? Math.max(1, Math.round(calcCusto(p) * Number(cfg.markup))) : 0
   const margem = (p: Produto) => { const c = calcCusto(p); return c > 0 ? ((Number(p.preco) - c) / Number(p.preco)) * 100 : 0 }
 
@@ -517,11 +519,14 @@ function CobrancaBox({ pedido }: { pedido: Pedido }) {
 }
 
 // ---------------------------------------------------------------- NOVO PEDIDO
-type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number }
+type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; peso_g?: number; tempo_h?: number }
 
 function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClose: () => void; onSalvo: () => void }) {
   const [linhas, setLinhas] = useState<Linha[]>([])
+  const [cfg, setCfg] = useState<ConfigCustos | null>(null)
   const [busca, setBusca] = useState('')
+
+  useEffect(() => { api('/api/admin/config-custos').then(({ ok, j }) => { if (ok) setCfg(j.config as ConfigCustos) }) }, [])
   const [cliente, setCliente] = useState('')
   const [telefone, setTelefone] = useState('')
   const [frete, setFrete] = useState(0)
@@ -545,7 +550,7 @@ function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClo
     })
     setBusca('')
   }
-  function addLivre() { setLinhas(ls => [...ls, { produto_id: null, descricao: '', quantidade: 1, preco_unitario: 0 }]) }
+  function addLivre() { setLinhas(ls => [...ls, { produto_id: null, descricao: '', quantidade: 1, preco_unitario: 0, peso_g: 0, tempo_h: 0 }]) }
   function upd(i: number, patch: Partial<Linha>) { setLinhas(ls => ls.map((l, x) => x === i ? { ...l, ...patch } : l)) }
   function rm(i: number) { setLinhas(ls => ls.filter((_, x) => x !== i)) }
 
@@ -588,17 +593,32 @@ function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClo
 
           {linhas.length > 0 && (
             <div className="space-y-2">
-              {linhas.map((l, i) => (
-                <div key={i} className="flex items-center gap-2 bg-white rounded-lg border border-[#15153f]/10 p-2">
-                  <input value={l.descricao} onChange={e => upd(i, { descricao: e.target.value })} placeholder="descrição"
-                    className="flex-1 min-w-0 text-sm px-2 py-1 outline-none" />
-                  <input type="number" min={1} value={l.quantidade} onChange={e => upd(i, { quantidade: Math.max(1, +e.target.value) })}
-                    className="w-14 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-center" />
-                  <input type="number" min={0} step="0.01" value={l.preco_unitario} onChange={e => upd(i, { preco_unitario: +e.target.value })}
-                    className="w-20 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-right" />
-                  <button onClick={() => rm(i)} className="text-[#15153f]/30 hover:text-red-600 px-1">×</button>
-                </div>
-              ))}
+              {linhas.map((l, i) => {
+                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0)
+                const sug = cfg ? Math.max(1, Math.round(custo * Number(cfg.markup))) : 0
+                return (
+                  <div key={i} className="bg-white rounded-lg border border-[#15153f]/10 p-2">
+                    <div className="flex items-center gap-2">
+                      <input value={l.descricao} onChange={e => upd(i, { descricao: e.target.value })} placeholder="descrição"
+                        className="flex-1 min-w-0 text-sm px-2 py-1 outline-none" />
+                      <input type="number" min={1} value={l.quantidade} onChange={e => upd(i, { quantidade: Math.max(1, +e.target.value) })}
+                        className="w-14 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-center" />
+                      <input type="number" min={0} step="0.01" value={l.preco_unitario} onChange={e => upd(i, { preco_unitario: +e.target.value })}
+                        className="w-20 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-right" />
+                      <button onClick={() => rm(i)} className="text-[#15153f]/30 hover:text-red-600 px-1">×</button>
+                    </div>
+                    {l.produto_id === null && (
+                      <div className="flex items-center flex-wrap gap-2 mt-2 pt-2 border-t border-[#15153f]/8 text-xs text-[#15153f]/60">
+                        <span className="font-semibold">Calcular custo:</span>
+                        <label className="flex items-center gap-1">peso <input type="number" min={0} value={l.peso_g ?? 0} onChange={e => upd(i, { peso_g: +e.target.value })} className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />g</label>
+                        <label className="flex items-center gap-1">tempo <input type="number" min={0} step="0.1" value={l.tempo_h ?? 0} onChange={e => upd(i, { tempo_h: +e.target.value })} className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />h</label>
+                        <span>custo <b className="text-[#15153f]">{brl(custo)}</b></span>
+                        {cfg && <button onClick={() => upd(i, { preco_unitario: sug })} className="font-bold text-[#333389] hover:underline">usar sugerido {brl(sug)}</button>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
