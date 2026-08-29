@@ -8,10 +8,11 @@ type Pedido = {
   subtotal: number; frete: number; total: number
   cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
   cep: string | null; cidade: string | null; uf: string | null
-  frete_rastreio: string | null; frete_etiqueta_url: string | null
+  frete_rastreio: string | null; frete_etiqueta_url: string | null; impressora: string | null
   observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
 type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
+type Impressora = { id: string; nome: string; tipo: string | null; ativo: boolean }
 
 const STATUS: { v: string; label: string; cor: string }[] = [
   { v: 'aguardando_pagamento', label: 'Aguardando pgto', cor: '#b7791f' },
@@ -104,6 +105,8 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const dono = sessao.papel === 'dono'
   const [pedidos, setPedidos] = useState<Pedido[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
+  const [impressoras, setImpressoras] = useState<Impressora[]>([])
+  const [gerImpressoras, setGerImpressoras] = useState(false)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [fStatus, setFStatus] = useState('')
@@ -123,10 +126,22 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
     setLoading(false)
   }, [fStatus, fOrigem])
 
+  const carregarImpressoras = useCallback(async () => {
+    const { ok, j } = await api('/api/admin/impressoras')
+    if (ok) setImpressoras(j.impressoras as Impressora[])
+  }, [])
+
   useEffect(() => {
     carregar()
+    carregarImpressoras()
     supabase.from('produtos').select('*').eq('ativo', true).order('nome').then(({ data }) => setProdutos((data ?? []) as Produto[]))
-  }, [carregar])
+  }, [carregar, carregarImpressoras])
+
+  async function mudarImpressora(id: string, impressora: string) {
+    setPedidos(ps => ps.map(p => p.id === id ? { ...p, impressora } : p))
+    await api('/api/admin/pedidos/' + id, { method: 'PATCH', body: JSON.stringify({ impressora }) })
+  }
+  const impAtivas = impressoras.filter(i => i.ativo)
 
   async function sair() { await api('/api/admin/me', { method: 'DELETE' }); onLogout() }
   async function mudarStatus(id: string, status: string) {
@@ -175,7 +190,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
       </nav>
 
       <main className="max-w-6xl mx-auto px-5 py-6">
-        {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} />}
+        {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} impressoras={impAtivas} onImpressora={mudarImpressora} onGerenciar={dono ? () => setGerImpressoras(true) : undefined} />}
         {aba === 'custos' && <Custos />}
         {aba === 'pedidos' && <>
         <div className={`grid grid-cols-2 ${dono ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3 mb-6`}>
@@ -227,6 +242,16 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                       ))}
                     </ul>
                     {p.observacoes && <p className="mt-1 text-xs italic text-[#15153f]/50">obs: {p.observacoes}</p>}
+                    {impAtivas.length > 0 && (
+                      <div className="mt-2 flex items-center gap-1.5 text-xs">
+                        <span title="impressora">🖨️</span>
+                        <select value={p.impressora ?? ''} onChange={e => mudarImpressora(p.id, e.target.value)}
+                          className="rounded border border-[#15153f]/12 px-2 py-1 bg-white text-[#15153f]/80">
+                          <option value="">— impressora —</option>
+                          {impAtivas.map(i => <option key={i.id} value={i.nome}>{i.nome}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <div className="serif text-xl font-bold text-[#333389]">{brl(p.total)}</div>
@@ -253,8 +278,63 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
         </>}
       </main>
 
-      {novo && <NovoPedido produtos={produtos} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar() }} />}
+      {novo && <NovoPedido produtos={produtos} impressoras={impAtivas} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar() }} />}
       {equipe && <Equipe onClose={() => setEquipe(false)} />}
+      {gerImpressoras && <ImpressorasModal onClose={() => { setGerImpressoras(false); carregarImpressoras() }} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- IMPRESSORAS (só dono)
+function ImpressorasModal({ onClose }: { onClose: () => void }) {
+  const [lista, setLista] = useState<Impressora[]>([])
+  const [nome, setNome] = useState('')
+  const [tipo, setTipo] = useState('resina')
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => { const { ok, j } = await api('/api/admin/impressoras'); if (ok) setLista(j.impressoras as Impressora[]) }, [])
+  useEffect(() => { carregar() }, [carregar])
+
+  async function add() {
+    setErro('')
+    if (nome.trim().length < 2) { setErro('nome muito curto'); return }
+    const { ok, j } = await api('/api/admin/impressoras', { method: 'POST', body: JSON.stringify({ nome, tipo }) })
+    if (!ok) { setErro((j.error as string) || 'erro'); return }
+    setNome(''); carregar()
+  }
+  async function toggle(i: Impressora) { await api('/api/admin/impressoras/' + i.id, { method: 'PATCH', body: JSON.stringify({ ativo: !i.ativo }) }); carregar() }
+  async function remover(i: Impressora) { if (!confirm('Remover ' + i.nome + '?')) return; await api('/api/admin/impressoras/' + i.id, { method: 'DELETE' }); carregar() }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 grid place-items-end sm:place-items-center p-0 sm:p-6" onClick={onClose}>
+      <div className="w-full sm:max-w-md bg-[#faf9f5] rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-[#faf9f5] px-5 pt-5 pb-3 border-b border-[#15153f]/10 flex items-center justify-between">
+          <h2 className="serif text-xl font-semibold text-[#15153f]">Impressoras</h2>
+          <button onClick={onClose} className="text-2xl text-[#15153f]/40 leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="rounded-xl bg-white border border-[#15153f]/10 p-3 flex flex-wrap gap-2">
+            <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome (ex.: Bambu P1S)" className="flex-1 min-w-[120px] rounded-lg border border-[#15153f]/15 px-3 py-2 outline-none focus:border-[#C9A86A]" />
+            <select value={tipo} onChange={e => setTipo(e.target.value)} className="rounded-lg border border-[#15153f]/15 px-3 py-2 bg-white">
+              <option value="resina">Resina</option><option value="fdm">FDM</option>
+            </select>
+            <button onClick={add} className="rounded-full bg-[#15153f] text-white font-bold px-5 py-2 text-sm hover:bg-[#333389]">Adicionar</button>
+            {erro && <p className="w-full text-sm text-red-600">{erro}</p>}
+          </div>
+          <div className="space-y-2">
+            {lista.map(i => (
+              <div key={i.id} className={`flex items-center justify-between rounded-xl bg-white border border-[#15153f]/10 p-3 ${i.ativo ? '' : 'opacity-50'}`}>
+                <div><span className="font-semibold text-[#15153f]">{i.nome}</span> {i.tipo && <span className="text-[10px] font-bold text-[#C9A86A] uppercase ml-1">{i.tipo}</span>}</div>
+                <div className="flex items-center gap-3 text-xs font-semibold">
+                  <button onClick={() => toggle(i)} className="text-[#15153f]/60">{i.ativo ? 'desativar' : 'ativar'}</button>
+                  <button onClick={() => remover(i)} className="text-[#15153f]/40 hover:text-red-600">remover</button>
+                </div>
+              </div>
+            ))}
+            {!lista.length && <p className="text-center text-sm text-[#15153f]/40 py-4">Nenhuma impressora.</p>}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -269,7 +349,10 @@ function CardM({ titulo, valor }: { titulo: string; valor: string }) {
 }
 
 // ---------------------------------------------------------------- FILA DE PRODUÇÃO
-function Fila({ pedidos, onStatus, onReload, loading }: { pedidos: Pedido[]; onStatus: (id: string, s: string) => void; onReload: () => void; loading: boolean }) {
+function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora, onGerenciar }: {
+  pedidos: Pedido[]; onStatus: (id: string, s: string) => void; onReload: () => void; loading: boolean
+  impressoras: Impressora[]; onImpressora: (id: string, nome: string) => void; onGerenciar?: () => void
+}) {
   const colunas: { status: string; titulo: string; cor: string; proximo?: string; acao?: string }[] = [
     { status: 'pago', titulo: 'A produzir', cor: '#2f855a', proximo: 'em_producao', acao: '▶ Iniciar' },
     { status: 'em_producao', titulo: 'Em produção', cor: '#3182ce', proximo: 'enviado', acao: '✓ Pronto / enviar' },
@@ -280,9 +363,12 @@ function Fila({ pedidos, onStatus, onReload, loading }: { pedidos: Pedido[]; onS
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3">
         <p className="text-sm text-[#15153f]/55">Ordem de chegada (mais antigo primeiro). Avance com os botões.</p>
-        <button onClick={onReload} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Atualizar</button>
+        <div className="flex items-center gap-2">
+          {onGerenciar && <button onClick={onGerenciar} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">🖨️ Impressoras</button>}
+          <button onClick={onReload} className="rounded-lg border border-[#15153f]/15 bg-white px-3 py-2 text-sm font-semibold hover:border-[#C9A86A]">Atualizar</button>
+        </div>
       </div>
       <div className="grid md:grid-cols-3 gap-4">
         {colunas.map(col => {
@@ -304,6 +390,13 @@ function Fila({ pedidos, onStatus, onReload, loading }: { pedidos: Pedido[]; onS
                     <ul className="mt-1.5 text-sm text-[#15153f]/80 space-y-0.5">
                       {p.itens_pedido?.map(it => <li key={it.id}>{it.quantidade}× {it.descricao}</li>)}
                     </ul>
+                    {impressoras.length > 0 && (
+                      <select value={p.impressora ?? ''} onChange={e => onImpressora(p.id, e.target.value)}
+                        className="mt-2 w-full rounded border border-[#15153f]/12 px-2 py-1.5 bg-white text-xs text-[#15153f]/80">
+                        <option value="">🖨️ escolher impressora</option>
+                        {impressoras.map(i => <option key={i.id} value={i.nome}>{i.nome}</option>)}
+                      </select>
+                    )}
                     {col.proximo && (
                       <button onClick={() => onStatus(p.id, col.proximo!)}
                         className="mt-2 w-full rounded-full text-white font-bold text-xs py-1.5 hover:opacity-90 transition" style={{ background: col.cor }}>
@@ -555,10 +648,11 @@ function CobrancaBox({ pedido }: { pedido: Pedido }) {
 // ---------------------------------------------------------------- NOVO PEDIDO
 type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; peso_g?: number; tempo_h?: number }
 
-function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClose: () => void; onSalvo: () => void }) {
+function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Produto[]; impressoras: Impressora[]; onClose: () => void; onSalvo: () => void }) {
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [cfg, setCfg] = useState<ConfigCustos | null>(null)
   const [busca, setBusca] = useState('')
+  const [impressora, setImpressora] = useState('')
 
   useEffect(() => { api('/api/admin/config-custos').then(({ ok, j }) => { if (ok) setCfg(j.config as ConfigCustos) }) }, [])
   const [cliente, setCliente] = useState('')
@@ -594,7 +688,7 @@ function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClo
   async function salvar() {
     if (!linhas.length) { setErro('adicione ao menos 1 item'); return }
     setSalvando(true); setErro('')
-    const { ok, j } = await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify({ itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs }) })
+    const { ok, j } = await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify({ itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }) })
     setSalvando(false)
     if (!ok) { setErro((j.error as string) || 'erro'); return }
     onSalvo()
@@ -665,6 +759,12 @@ function NovoPedido({ produtos, onClose, onSalvo }: { produtos: Produto[]; onClo
             <select value={status} onChange={e => setStatus(e.target.value)} className="rounded-lg border border-[#15153f]/15 px-3 py-2 bg-white">
               {STATUS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
             </select>
+            {impressoras.length > 0 && (
+              <select value={impressora} onChange={e => setImpressora(e.target.value)} className="col-span-2 rounded-lg border border-[#15153f]/15 px-3 py-2 bg-white">
+                <option value="">🖨️ Impressora (opcional)</option>
+                {impressoras.map(i => <option key={i.id} value={i.nome}>{i.nome}</option>)}
+              </select>
+            )}
             <label className="col-span-2 flex items-center gap-2 text-sm text-[#15153f]/70">
               Frete R$ <input type="number" min={0} step="0.01" value={frete} onChange={e => setFrete(+e.target.value)} className="w-24 rounded-lg border border-[#15153f]/15 px-3 py-2" />
             </label>

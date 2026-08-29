@@ -55,6 +55,7 @@ export async function POST(req: Request) {
     forma_pagamento: (body.forma_pagamento as string) || 'dinheiro',
     subtotal, frete, total,
     cliente_nome: (body.cliente_nome as string) || 'Cliente balcão',
+    impressora: (body.impressora as string) || null,
     cliente_telefone: (body.cliente_telefone as string) || null,
     cliente_email: (body.cliente_email as string) || null,
     cliente_cpf: (body.cliente_cpf as string) || null,
