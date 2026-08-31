@@ -941,6 +941,8 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                         </div>
                         {/* consumo do estoque (dá baixa depois) */}
                         <div className="space-y-1">
+                          <div className="font-semibold text-[#15153f]/70">📦 Consumo do estoque <span className="font-normal text-[#15153f]/45">(filamento, corrente, tag NFC… — dá baixa depois)</span></div>
+                          {insumos.length === 0 && <p className="text-[#b7791f]">Cadastre os insumos na aba <b>Estoque</b> pra escolher aqui.</p>}
                           {(l.consumo ?? []).map((c, ci) => (
                             <div key={ci} className="flex items-center gap-2">
                               <span>📦</span>
