@@ -2,14 +2,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, brl, type Produto } from '@/lib/supabase'
 
-type Item = { id: string; produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; valor_total: number }
+type ConsumoLinha = { estoque_id: string; nome: string; unidade: string; quantidade: number; custo_unit: number }
+type Item = { id: string; produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; valor_total: number; consumo?: ConsumoLinha[] }
 type Pedido = {
   id: string; codigo: number; origem: string; status: string; forma_pagamento: string | null
   subtotal: number; frete: number; desconto: number; total: number
   cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
   cep: string | null; cidade: string | null; uf: string | null
   frete_rastreio: string | null; frete_etiqueta_url: string | null; impressora: string | null
-  imagens: string[] | null; observacoes: string | null; created_at: string; itens_pedido: Item[]
+  imagens: string[] | null; estoque_baixado: boolean; observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
 type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
 type Impressora = { id: string; nome: string; tipo: string | null; ativo: boolean }
@@ -155,6 +156,14 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
     const { ok, j } = await api('/api/admin/pedidos/' + id, { method: 'DELETE' })
     if (ok) setPedidos(ps => ps.filter(p => p.id !== id)); else alert((j.error as string) || 'erro')
   }
+  async function baixarEstoque(p: Pedido) {
+    if (!confirm(`Dar baixa no estoque do pedido #${p.codigo}? (só uma vez)`)) return
+    const { ok, j } = await api('/api/admin/pedidos/' + p.id + '/baixar-estoque', { method: 'POST' })
+    if (!ok) { alert((j.error as string) || 'erro'); return }
+    const linhas = (j.baixados as { nome: string; usou: number; restou: number }[]).map(b => `• ${b.nome}: −${b.usou} (restam ${b.restou})`).join('\n')
+    alert('Estoque baixado:\n\n' + linhas)
+    setPedidos(ps => ps.map(x => x.id === p.id ? { ...x, estoque_baixado: true } : x))
+  }
 
   const metricas = useMemo(() => {
     const pagos = pedidos.filter(p => ['pago', 'em_producao', 'enviado', 'entregue'].includes(p.status))
@@ -273,7 +282,12 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                       className="mt-2 rounded-full text-xs font-bold px-3 py-1.5 text-white border-0 cursor-pointer" style={{ background: si.cor }}>
                       {STATUS.map(s => <option key={s.v} value={s.v} style={{ background: '#fff', color: '#15153f' }}>{s.label}</option>)}
                     </select>
-                    <div className="flex items-center gap-3 justify-end mt-2">
+                    <div className="flex items-center gap-3 justify-end mt-2 flex-wrap">
+                      {p.itens_pedido?.some(it => (it.consumo?.length ?? 0) > 0) && (
+                        p.estoque_baixado
+                          ? <span className="text-[11px] text-[#2f855a] font-bold">📦 estoque baixado ✓</span>
+                          : <button onClick={() => baixarEstoque(p)} className="text-xs font-bold text-[#805ad5] hover:underline">📦 Baixar estoque</button>
+                      )}
                       <button onClick={() => setEditar(p)} className="text-xs font-bold text-[#15153f]/70 hover:text-[#333389]">✏️ editar</button>
                       {p.status !== 'pago' && p.status !== 'entregue' && (
                         <button onClick={() => setCobrarId(cobrarId === p.id ? null : p.id)} className="text-xs font-bold text-[#333389] hover:underline">💳 Cobrança</button>
@@ -772,16 +786,18 @@ function CobrancaBox({ pedido }: { pedido: Pedido }) {
 }
 
 // ---------------------------------------------------------------- NOVO PEDIDO
-type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; peso_g?: number; tempo_h?: number }
+type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; peso_g?: number; tempo_h?: number; consumo?: ConsumoLinha[] }
 
 function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produtos: Produto[]; impressoras: Impressora[]; onClose: () => void; onSalvo: () => void; pedido?: Pedido }) {
   const ed = !!pedido
-  const [linhas, setLinhas] = useState<Linha[]>(pedido ? pedido.itens_pedido.map(i => ({ produto_id: i.produto_id, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario), peso_g: 0, tempo_h: 0 })) : [])
+  const [linhas, setLinhas] = useState<Linha[]>(pedido ? pedido.itens_pedido.map(i => ({ produto_id: i.produto_id, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario), peso_g: 0, tempo_h: 0, consumo: i.consumo ?? [] })) : [])
   const [cfg, setCfg] = useState<ConfigCustos | null>(null)
+  const [insumos, setInsumos] = useState<Insumo[]>([])
   const [busca, setBusca] = useState('')
   const [impressora, setImpressora] = useState(pedido?.impressora ?? '')
 
   useEffect(() => { api('/api/admin/config-custos').then(({ ok, j }) => { if (ok) setCfg(j.config as ConfigCustos) }) }, [])
+  useEffect(() => { api('/api/admin/estoque').then(({ ok, j }) => { if (ok) setInsumos((j.itens as Insumo[]).filter(i => i.ativo)) }) }, [])
   const [cliente, setCliente] = useState(pedido?.cliente_nome ?? '')
   const [telefone, setTelefone] = useState(pedido?.cliente_telefone ?? '')
   const [frete, setFrete] = useState(pedido ? Number(pedido.frete) : 0)
@@ -822,6 +838,17 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
   function addLivre() { setLinhas(ls => [...ls, { produto_id: null, descricao: '', quantidade: 1, preco_unitario: 0, peso_g: 0, tempo_h: 0 }]) }
   function upd(i: number, patch: Partial<Linha>) { setLinhas(ls => ls.map((l, x) => x === i ? { ...l, ...patch } : l)) }
   function rm(i: number) { setLinhas(ls => ls.filter((_, x) => x !== i)) }
+  function addConsumo(i: number, eid: string) {
+    const ins = insumos.find(x => x.id === eid); if (!ins) return
+    setLinhas(ls => ls.map((l, x) => x === i ? { ...l, consumo: [...(l.consumo ?? []), { estoque_id: ins.id, nome: ins.nome, unidade: ins.unidade, quantidade: 0, custo_unit: Number(ins.custo_unit) }] } : l))
+  }
+  function updConsumo(i: number, ci: number, patch: Partial<ConsumoLinha>) {
+    setLinhas(ls => ls.map((l, x) => x === i ? { ...l, consumo: (l.consumo ?? []).map((c, y) => y === ci ? { ...c, ...patch } : c) } : l))
+  }
+  function rmConsumo(i: number, ci: number) {
+    setLinhas(ls => ls.map((l, x) => x === i ? { ...l, consumo: (l.consumo ?? []).filter((_, y) => y !== ci) } : l))
+  }
+  const consumoCusto = (l: Linha) => (l.consumo ?? []).reduce((s, c) => s + Number(c.quantidade) * Number(c.custo_unit), 0)
 
   const subtotal = linhas.reduce((s, l) => s + l.preco_unitario * l.quantidade, 0)
   const total = Math.max(0, subtotal + Number(frete || 0) - Number(desconto || 0))
@@ -890,7 +917,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                 <span className="w-4"></span>
               </div>
               {linhas.map((l, i) => {
-                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0)
+                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0) + consumoCusto(l)
                 const sug = cfg ? Math.max(1, Math.round(custo * Number(cfg.markup))) : 0
                 return (
                   <div key={i} className="bg-white rounded-lg border border-[#15153f]/10 p-2">
@@ -904,12 +931,37 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                       <button onClick={() => rm(i)} className="text-[#15153f]/30 hover:text-red-600 px-1">×</button>
                     </div>
                     {l.produto_id === null && (
-                      <div className="flex items-center flex-wrap gap-2 mt-2 pt-2 border-t border-[#15153f]/8 text-xs text-[#15153f]/60">
-                        <span className="font-semibold">Calcular custo:</span>
-                        <label className="flex items-center gap-1">peso <input type="number" min={0} value={l.peso_g ?? 0} onChange={e => upd(i, { peso_g: +e.target.value })} className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />g</label>
-                        <label className="flex items-center gap-1">tempo <input type="number" min={0} step="0.1" value={l.tempo_h ?? 0} onChange={e => upd(i, { tempo_h: +e.target.value })} className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />h</label>
-                        <span>custo <b className="text-[#15153f]">{brl(custo)}</b></span>
-                        {cfg && <button onClick={() => upd(i, { preco_unitario: sug })} className="font-bold text-[#333389] hover:underline">usar sugerido {brl(sug)}</button>}
+                      <div className="mt-2 pt-2 border-t border-[#15153f]/8 text-xs text-[#15153f]/60 space-y-2">
+                        <div className="flex items-center flex-wrap gap-2">
+                          <span className="font-semibold">Custo:</span>
+                          <label className="flex items-center gap-1" title="peso só se NÃO usar consumo do estoque">peso <input type="number" min={0} value={l.peso_g ?? 0} onChange={e => upd(i, { peso_g: +e.target.value })} className="w-14 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />g</label>
+                          <label className="flex items-center gap-1">tempo <input type="number" min={0} step="0.1" value={l.tempo_h ?? 0} onChange={e => upd(i, { tempo_h: +e.target.value })} className="w-14 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />h</label>
+                          <span>= <b className="text-[#15153f]">{brl(custo)}</b></span>
+                          {cfg && <button onClick={() => upd(i, { preco_unitario: sug })} className="font-bold text-[#333389] hover:underline">usar sugerido {brl(sug)}</button>}
+                        </div>
+                        {/* consumo do estoque (dá baixa depois) */}
+                        <div className="space-y-1">
+                          {(l.consumo ?? []).map((c, ci) => (
+                            <div key={ci} className="flex items-center gap-2">
+                              <span>📦</span>
+                              <select value={c.estoque_id} onChange={e => { const ins = insumos.find(x => x.id === e.target.value); if (ins) updConsumo(i, ci, { estoque_id: ins.id, nome: ins.nome, unidade: ins.unidade, custo_unit: Number(ins.custo_unit) }) }}
+                                className="rounded border border-[#15153f]/10 px-2 py-1 bg-white max-w-[150px]">
+                                {insumos.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                              </select>
+                              <input type="number" min={0} step="0.01" value={c.quantidade} onChange={e => updConsumo(i, ci, { quantidade: +e.target.value })} className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />
+                              <span className="w-5">{c.unidade}</span>
+                              <span className="text-[#15153f]/70">{brl(c.quantidade * c.custo_unit)}</span>
+                              <button onClick={() => rmConsumo(i, ci)} className="text-[#15153f]/30 hover:text-red-600">×</button>
+                            </div>
+                          ))}
+                          {insumos.length > 0 && (
+                            <select value="" onChange={e => { if (e.target.value) { addConsumo(i, e.target.value); e.currentTarget.value = '' } }}
+                              className="rounded border border-dashed border-[#15153f]/25 px-2 py-1 bg-white text-[#333389] font-semibold">
+                              <option value="">+ consumir do estoque…</option>
+                              {insumos.map(x => <option key={x.id} value={x.id}>{x.nome} ({x.quantidade}{x.unidade})</option>)}
+                            </select>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

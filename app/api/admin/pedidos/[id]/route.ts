@@ -31,7 +31,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!service) return NextResponse.json({ error: erro }, { status: 503 })
 
   // edição de itens/frete/desconto: substitui e recalcula subtotal/total
-  type ItemIn = { produto_id?: string | null; descricao: string; quantidade: number; preco_unitario: number }
+  type ItemIn = { produto_id?: string | null; descricao: string; quantidade: number; preco_unitario: number; consumo?: unknown[] }
   const itens = Array.isArray(body.itens) ? (body.itens as ItemIn[]) : null
   const mexeValor = itens || patch.frete != null || patch.desconto != null
   if (mexeValor) {
@@ -47,6 +47,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         pedido_id: id, produto_id: i.produto_id || null, descricao: i.descricao,
         quantidade: Number(i.quantidade), preco_unitario: Number(i.preco_unitario),
         valor_total: Number(i.preco_unitario) * Number(i.quantidade),
+        consumo: Array.isArray(i.consumo) ? i.consumo : [],
       })))
     }
   }

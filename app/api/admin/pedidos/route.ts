@@ -32,7 +32,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ pedidos: data ?? [] })
 }
 
-type ItemInput = { produto_id?: string | null; descricao: string; quantidade: number; preco_unitario: number }
+type ItemInput = { produto_id?: string | null; descricao: string; quantidade: number; preco_unitario: number; consumo?: unknown[] }
 
 // POST /api/admin/pedidos  → cria pedido MANUAL (venda direta / PDV)
 export async function POST(req: Request) {
@@ -76,6 +76,7 @@ export async function POST(req: Request) {
     quantidade: Number(i.quantidade),
     preco_unitario: Number(i.preco_unitario),
     valor_total: Number(i.preco_unitario) * Number(i.quantidade),
+    consumo: Array.isArray(i.consumo) ? i.consumo : [],
   }))
   const { error: ie } = await service.from('itens_pedido').insert(linhas)
   if (ie) return NextResponse.json({ error: ie.message }, { status: 500 })
