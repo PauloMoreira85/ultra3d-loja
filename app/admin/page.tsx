@@ -488,14 +488,14 @@ function Custos() {
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {campoCfg('filamento_kg', 'Filamento R$/kg')}
+          {campoCfg('filamento_kg', 'Material R$/kg (filamento/resina)')}
+          {campoCfg('mao_obra_hora', 'Máquina + operador R$/h')}
           {campoCfg('energia_kwh', 'Energia R$/kWh', '0.0001')}
           {campoCfg('potencia_w', 'Potência (W)', '1')}
           {campoCfg('falha_pct', 'Falhas (%)', '0.5')}
-          {campoCfg('mao_obra_hora', 'Mão de obra R$/h')}
           {campoCfg('markup', 'Markup (×)', '0.1')}
         </div>
-        <p className="text-xs text-[#15153f]/45 mt-2">Custo = filamento + energia + mão de obra, + % de falhas. Preço sugerido = custo × markup.</p>
+        <p className="text-xs text-[#15153f]/45 mt-2">Custo = material (peso × R$/kg) + <b>tempo × (máquina+operador)</b> + energia, + % de falhas. Preço sugerido = custo × markup. <b>Preencha peso e tempo de cada peça</b> — o tempo é o que mais pesa na impressão 3D.</p>
       </div>
 
       <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar produto…"
