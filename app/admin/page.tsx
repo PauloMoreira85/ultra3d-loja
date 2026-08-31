@@ -116,7 +116,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const [equipe, setEquipe] = useState(false)
   const [cobrarId, setCobrarId] = useState<string | null>(null)
   const [zoom, setZoom] = useState<string | null>(null)
-  const [aba, setAba] = useState<'pedidos' | 'fila' | 'custos'>('pedidos')
+  const [aba, setAba] = useState<'pedidos' | 'fila' | 'custos' | 'estoque'>('pedidos')
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro('')
@@ -184,7 +184,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
 
       <nav className="max-w-6xl mx-auto px-5 pt-4">
         <div className="inline-flex rounded-full bg-white border border-[#15153f]/10 p-1 gap-1">
-          {([['pedidos', 'Pedidos'], ['fila', 'Fila de produção'], ['custos', 'Custos']] as [string, string][]).map(([v, label]) => (
+          {([['pedidos', 'Pedidos'], ['fila', 'Fila de produção'], ['custos', 'Custos'], ['estoque', 'Estoque']] as [string, string][]).map(([v, label]) => (
             <button key={v} onClick={() => setAba(v as typeof aba)}
               className={`rounded-full px-4 py-1.5 text-sm font-bold transition ${aba === v ? 'bg-[#15153f] text-white' : 'text-[#15153f]/60 hover:text-[#333389]'}`}>{label}</button>
           ))}
@@ -194,6 +194,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
       <main className="max-w-6xl mx-auto px-5 py-6">
         {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} impressoras={impAtivas} onImpressora={mudarImpressora} onGerenciar={dono ? () => setGerImpressoras(true) : undefined} />}
         {aba === 'custos' && <Custos />}
+        {aba === 'estoque' && <Estoque dono={dono} />}
         {aba === 'pedidos' && <>
         <div className={`grid grid-cols-2 ${dono ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-3 mb-6`}>
           {dono && <CardM titulo="Receita (pagos)" valor={brl(metricas.receita)} />}
@@ -603,6 +604,104 @@ function EtiquetaBox({ pedido }: { pedido: Pedido }) {
         </button>
       )}
       {erro && <span className="text-xs text-red-600">{erro}</span>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- ESTOQUE
+type Insumo = { id: string; nome: string; categoria: string | null; unidade: string; quantidade: number; minimo: number; custo_unit: number; obs: string | null; ativo: boolean }
+const CATEGORIAS = ['Filamento', 'Resina', 'Componentes', 'Embalagem', 'Outros']
+const UNIDADES = ['un', 'kg', 'g', 'm', 'L', 'ml']
+
+function Estoque({ dono }: { dono: boolean }) {
+  const [itens, setItens] = useState<Insumo[]>([])
+  const [busca, setBusca] = useState('')
+  const [novo, setNovo] = useState({ nome: '', categoria: 'Filamento', unidade: 'kg', quantidade: 0, minimo: 0, custo_unit: 0 })
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => { const { ok, j } = await api('/api/admin/estoque'); if (ok) setItens(j.itens as Insumo[]) }, [])
+  useEffect(() => { carregar() }, [carregar])
+
+  function setLocal(id: string, patch: Partial<Insumo>) { setItens(xs => xs.map(x => x.id === id ? { ...x, ...patch } : x)) }
+  async function upd(id: string, patch: Record<string, unknown>) { await api('/api/admin/estoque/' + id, { method: 'PATCH', body: JSON.stringify(patch) }) }
+  async function ajustar(it: Insumo, delta: number) {
+    const q = Math.max(0, Number(it.quantidade) + delta)
+    setLocal(it.id, { quantidade: q }); await upd(it.id, { quantidade: q })
+  }
+  async function remover(it: Insumo) { if (!confirm('Remover ' + it.nome + '?')) return; await api('/api/admin/estoque/' + it.id, { method: 'DELETE' }); carregar() }
+  async function add() {
+    setErro('')
+    if (!novo.nome.trim()) { setErro('informe o nome'); return }
+    const { ok, j } = await api('/api/admin/estoque', { method: 'POST', body: JSON.stringify(novo) })
+    if (!ok) { setErro((j.error as string) || 'erro'); return }
+    setNovo({ nome: '', categoria: novo.categoria, unidade: novo.unidade, quantidade: 0, minimo: 0, custo_unit: 0 }); carregar()
+  }
+
+  const filtrados = useMemo(() => { const q = busca.trim().toLowerCase(); return q ? itens.filter(i => i.nome.toLowerCase().includes(q)) : itens }, [busca, itens])
+  const baixos = itens.filter(i => Number(i.quantidade) <= Number(i.minimo))
+  const cats = [...new Set(filtrados.map(i => i.categoria || 'Outros'))]
+  const step = (u: string) => (u === 'kg' || u === 'L' ? 0.5 : u === 'g' || u === 'ml' ? 50 : 1)
+
+  return (
+    <div>
+      {/* alerta de baixo estoque */}
+      {baixos.length > 0 && (
+        <div className="rounded-xl bg-[#c53030]/8 border border-[#c53030]/20 p-3 mb-4 text-sm text-[#c53030]">
+          ⚠️ <b>{baixos.length}</b> {baixos.length === 1 ? 'insumo abaixo' : 'insumos abaixo'} do mínimo: {baixos.map(b => b.nome).join(', ')}
+        </div>
+      )}
+
+      {/* adicionar */}
+      <div className="rounded-2xl bg-white border border-[#15153f]/8 p-4 mb-5">
+        <div className="text-xs font-semibold text-[#15153f]/60 mb-2">Adicionar insumo</div>
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+          <input value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} placeholder="Nome (ex.: PLA Branco Fosco)" className="col-span-2 rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm outline-none focus:border-[#C9A86A]" />
+          <select value={novo.categoria} onChange={e => setNovo({ ...novo, categoria: e.target.value })} className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm bg-white">{CATEGORIAS.map(c => <option key={c}>{c}</option>)}</select>
+          <select value={novo.unidade} onChange={e => setNovo({ ...novo, unidade: e.target.value })} className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm bg-white">{UNIDADES.map(u => <option key={u}>{u}</option>)}</select>
+          <input type="number" step="0.01" value={novo.custo_unit} onChange={e => setNovo({ ...novo, custo_unit: +e.target.value })} placeholder="R$/un" title="custo por unidade" className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm text-right" />
+          <button onClick={add} className="rounded-full bg-[#15153f] text-white font-bold px-4 py-2 text-sm hover:bg-[#333389]">Adicionar</button>
+        </div>
+        {erro && <p className="text-sm text-red-600 mt-2">{erro}</p>}
+      </div>
+
+      <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar insumo…" className="w-full sm:w-72 rounded-lg border border-[#15153f]/15 px-3 py-2 mb-3 outline-none focus:border-[#C9A86A]" />
+
+      {cats.map(cat => (
+        <div key={cat} className="mb-5">
+          <h3 className="serif text-lg font-semibold text-[#15153f] mb-2">{cat}</h3>
+          <div className="overflow-x-auto rounded-2xl border border-[#15153f]/8 bg-white">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead><tr className="text-left text-[11px] uppercase tracking-wide text-[#15153f]/45 border-b border-[#15153f]/8">
+                <th className="p-3">Insumo</th><th className="p-3 w-44 text-center">Quantidade</th><th className="p-3 w-24">Mínimo</th><th className="p-3 w-24">R$/un</th><th className="p-3 w-16"></th>
+              </tr></thead>
+              <tbody>
+                {filtrados.filter(i => (i.categoria || 'Outros') === cat).map(it => {
+                  const baixo = Number(it.quantidade) <= Number(it.minimo)
+                  return (
+                    <tr key={it.id} className="border-b border-[#15153f]/5 hover:bg-[#faf9f5]">
+                      <td className="p-3 font-semibold text-[#15153f]">{it.nome}{baixo && <span className="ml-2 text-[10px] font-bold text-[#c53030]">BAIXO</span>}</td>
+                      <td className="p-3">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button onClick={() => ajustar(it, -step(it.unidade))} className="h-7 w-7 rounded-lg bg-[#faf9f5] border border-[#15153f]/10 font-bold">−</button>
+                          <input type="number" step="0.01" value={it.quantidade} onChange={e => setLocal(it.id, { quantidade: +e.target.value })} onBlur={e => upd(it.id, { quantidade: +e.target.value })}
+                            className={`w-20 text-center rounded border px-2 py-1 ${baixo ? 'border-[#c53030] text-[#c53030] font-bold' : 'border-[#15153f]/10'}`} />
+                          <button onClick={() => ajustar(it, step(it.unidade))} className="h-7 w-7 rounded-lg bg-[#faf9f5] border border-[#15153f]/10 font-bold">+</button>
+                          <span className="text-xs text-[#15153f]/45 w-6">{it.unidade}</span>
+                        </div>
+                      </td>
+                      <td className="p-3"><input type="number" step="0.01" value={it.minimo} onChange={e => setLocal(it.id, { minimo: +e.target.value })} onBlur={e => upd(it.id, { minimo: +e.target.value })} className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" /></td>
+                      <td className="p-3"><input type="number" step="0.01" value={it.custo_unit} onChange={e => setLocal(it.id, { custo_unit: +e.target.value })} onBlur={e => upd(it.id, { custo_unit: +e.target.value })} className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" /></td>
+                      <td className="p-3 text-right">{dono && <button onClick={() => remover(it)} className="text-[11px] text-[#15153f]/40 hover:text-red-600">remover</button>}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+      {!itens.length && <p className="text-center text-[#15153f]/45 py-10">Nenhum insumo. Adicione acima.</p>}
+      <p className="text-xs text-[#15153f]/45 mt-1">− e + ajustam a quantidade (entrada/saída). Editar quantidade/mínimo/custo salva ao sair do campo.</p>
     </div>
   )
 }
