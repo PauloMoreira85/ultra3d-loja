@@ -64,6 +64,7 @@ export async function POST(req: Request) {
     numero: (body.numero as string) || null, complemento: (body.complemento as string) || null,
     bairro: (body.bairro as string) || null, cidade: (body.cidade as string) || null, uf: (body.uf as string) || null,
     observacoes: (body.observacoes as string) || null,
+    imagens: Array.isArray(body.imagens) ? (body.imagens as string[]) : [],
     pago_em: ((body.status as string) || 'pago') === 'pago' ? new Date().toISOString() : null,
   }).select('id').single()
   if (error || !ped) return NextResponse.json({ error: error?.message || 'falha ao criar' }, { status: 500 })

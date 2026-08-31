@@ -9,7 +9,7 @@ type Pedido = {
   cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
   cep: string | null; cidade: string | null; uf: string | null
   frete_rastreio: string | null; frete_etiqueta_url: string | null; impressora: string | null
-  observacoes: string | null; created_at: string; itens_pedido: Item[]
+  imagens: string[] | null; observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
 type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
 type Impressora = { id: string; nome: string; tipo: string | null; ativo: boolean }
@@ -115,6 +115,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const [editar, setEditar] = useState<Pedido | null>(null)
   const [equipe, setEquipe] = useState(false)
   const [cobrarId, setCobrarId] = useState<string | null>(null)
+  const [zoom, setZoom] = useState<string | null>(null)
   const [aba, setAba] = useState<'pedidos' | 'fila' | 'custos'>('pedidos')
 
   const carregar = useCallback(async () => {
@@ -222,6 +223,14 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
             return (
               <div key={p.id} className="rounded-2xl bg-white border border-[#15153f]/8 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex gap-3 min-w-0">
+                    {p.imagens?.[0] && (
+                      <button onClick={() => setZoom(p.imagens![0])} className="relative shrink-0" title="ver foto">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.imagens[0]} alt="" className="h-16 w-16 object-cover rounded-lg border border-[#15153f]/10 cursor-zoom-in" />
+                        {p.imagens.length > 1 && <span className="absolute -bottom-1 -right-1 bg-[#15153f] text-white text-[10px] font-bold rounded-full px-1.5">+{p.imagens.length - 1}</span>}
+                      </button>
+                    )}
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-[#15153f]">#{p.codigo}</span>
@@ -254,6 +263,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                       </div>
                     )}
                   </div>
+                  </div>
                   <div className="text-right shrink-0">
                     <div className="serif text-xl font-bold text-[#333389]">{brl(p.total)}</div>
                     {Number(p.frete) > 0 && <div className="text-[11px] text-[#15153f]/45">frete {brl(p.frete)}</div>}
@@ -285,6 +295,13 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
       {editar && <NovoPedido produtos={produtos} impressoras={impAtivas} pedido={editar} onClose={() => setEditar(null)} onSalvo={() => { setEditar(null); carregar() }} />}
       {equipe && <Equipe onClose={() => setEquipe(false)} />}
       {gerImpressoras && <ImpressorasModal onClose={() => { setGerImpressoras(false); carregarImpressoras() }} />}
+      {zoom && (
+        <div className="fixed inset-0 z-[60] bg-black/90 grid place-items-center p-4" onClick={() => setZoom(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoom} alt="" className="max-w-full max-h-full rounded-2xl" />
+          <button aria-label="Fechar" className="absolute top-4 right-6 text-white text-4xl leading-none">×</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -391,9 +408,15 @@ function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora,
                       <span className="text-[11px] text-[#15153f]/45">{fmtData(p.created_at)}</span>
                     </div>
                     <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}</div>
-                    <ul className="mt-1.5 text-sm text-[#15153f]/80 space-y-0.5">
-                      {p.itens_pedido?.map(it => <li key={it.id}>{it.quantidade}× {it.descricao}</li>)}
-                    </ul>
+                    <div className="flex gap-2 mt-1.5">
+                      {p.imagens?.[0] && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.imagens[0]} alt="" onClick={() => window.open(p.imagens![0], '_blank')} className="h-20 w-20 object-cover rounded-lg border border-[#15153f]/10 cursor-zoom-in shrink-0" />
+                      )}
+                      <ul className="text-sm text-[#15153f]/80 space-y-0.5">
+                        {p.itens_pedido?.map(it => <li key={it.id}>{it.quantidade}× {it.descricao}</li>)}
+                      </ul>
+                    </div>
                     {impressoras.length > 0 && (
                       <select value={p.impressora ?? ''} onChange={e => onImpressora(p.id, e.target.value)}
                         className="mt-2 w-full rounded border border-[#15153f]/12 px-2 py-1.5 bg-white text-xs text-[#15153f]/80">
@@ -667,8 +690,21 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
   const [pagamento, setPagamento] = useState(pedido?.forma_pagamento ?? 'dinheiro')
   const [status, setStatus] = useState(pedido?.status ?? 'pago')
   const [obs, setObs] = useState(pedido?.observacoes ?? '')
+  const [imagens, setImagens] = useState<string[]>(pedido?.imagens ?? [])
+  const [subindo, setSubindo] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
+
+  async function enviarFoto(file: File | undefined) {
+    if (!file) return
+    setSubindo(true); setErro('')
+    const fd = new FormData(); fd.append('file', file)
+    const r = await fetch('/api/admin/upload', { method: 'POST', body: fd })
+    const j = await r.json().catch(() => ({}))
+    setSubindo(false)
+    if (!r.ok) { setErro((j.error as string) || 'falha no upload'); return }
+    setImagens(xs => [...xs, j.url as string])
+  }
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -694,7 +730,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
   async function salvar() {
     if (!linhas.length) { setErro('adicione ao menos 1 item'); return }
     setSalvando(true); setErro('')
-    const corpo = { itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), desconto: Number(desconto || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }
+    const corpo = { itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), desconto: Number(desconto || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora, imagens }
     const { ok, j } = ed
       ? await api('/api/admin/pedidos/' + pedido!.id, { method: 'PATCH', body: JSON.stringify(corpo) })
       : await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify(corpo) })
@@ -726,6 +762,24 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
               </div>
             )}
             <button onClick={addLivre} className="mt-2 text-sm text-[#333389] font-semibold">+ item avulso</button>
+          </div>
+
+          {/* fotos de referência (pra quem imprime/embala saber o que é) */}
+          <div>
+            <label className="text-xs font-semibold text-[#15153f]/60">Fotos de referência</label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {imagens.map((u, i) => (
+                <div key={i} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt="" className="h-16 w-16 object-cover rounded-lg border border-[#15153f]/10" />
+                  <button onClick={() => setImagens(xs => xs.filter((_, x) => x !== i))} className="absolute -top-1.5 -right-1.5 h-5 w-5 grid place-items-center rounded-full bg-white border border-[#15153f]/15 text-[#15153f]/60 text-xs">×</button>
+                </div>
+              ))}
+              <label className="h-16 w-16 grid place-items-center rounded-lg border-2 border-dashed border-[#15153f]/20 text-[#15153f]/40 cursor-pointer hover:border-[#C9A86A]">
+                {subindo ? '…' : <span className="text-2xl leading-none">📷</span>}
+                <input type="file" accept="image/*" className="hidden" onChange={e => { enviarFoto(e.target.files?.[0]); e.currentTarget.value = '' }} />
+              </label>
+            </div>
           </div>
 
           {linhas.length > 0 && (

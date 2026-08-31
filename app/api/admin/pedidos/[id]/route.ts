@@ -6,7 +6,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const CAMPOS = new Set([
-  'status', 'forma_pagamento', 'frete', 'desconto', 'observacoes', 'frete_rastreio', 'impressora',
+  'status', 'forma_pagamento', 'frete', 'desconto', 'observacoes', 'frete_rastreio', 'impressora', 'imagens',
   'cliente_nome', 'cliente_telefone', 'cliente_email', 'cliente_cpf',
   'cep', 'rua', 'numero', 'complemento', 'bairro', 'cidade', 'uf',
 ])
