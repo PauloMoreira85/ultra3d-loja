@@ -112,6 +112,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const [fStatus, setFStatus] = useState('')
   const [fOrigem, setFOrigem] = useState('')
   const [novo, setNovo] = useState(false)
+  const [editar, setEditar] = useState<Pedido | null>(null)
   const [equipe, setEquipe] = useState(false)
   const [cobrarId, setCobrarId] = useState<string | null>(null)
   const [aba, setAba] = useState<'pedidos' | 'fila' | 'custos'>('pedidos')
@@ -261,6 +262,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                       {STATUS.map(s => <option key={s.v} value={s.v} style={{ background: '#fff', color: '#15153f' }}>{s.label}</option>)}
                     </select>
                     <div className="flex items-center gap-3 justify-end mt-2">
+                      <button onClick={() => setEditar(p)} className="text-xs font-bold text-[#15153f]/70 hover:text-[#333389]">✏️ editar</button>
                       {p.status !== 'pago' && p.status !== 'entregue' && (
                         <button onClick={() => setCobrarId(cobrarId === p.id ? null : p.id)} className="text-xs font-bold text-[#333389] hover:underline">💳 Cobrança</button>
                       )}
@@ -279,6 +281,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
       </main>
 
       {novo && <NovoPedido produtos={produtos} impressoras={impAtivas} onClose={() => setNovo(false)} onSalvo={() => { setNovo(false); carregar() }} />}
+      {editar && <NovoPedido produtos={produtos} impressoras={impAtivas} pedido={editar} onClose={() => setEditar(null)} onSalvo={() => { setEditar(null); carregar() }} />}
       {equipe && <Equipe onClose={() => setEquipe(false)} />}
       {gerImpressoras && <ImpressorasModal onClose={() => { setGerImpressoras(false); carregarImpressoras() }} />}
     </div>
@@ -648,19 +651,20 @@ function CobrancaBox({ pedido }: { pedido: Pedido }) {
 // ---------------------------------------------------------------- NOVO PEDIDO
 type Linha = { produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; peso_g?: number; tempo_h?: number }
 
-function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Produto[]; impressoras: Impressora[]; onClose: () => void; onSalvo: () => void }) {
-  const [linhas, setLinhas] = useState<Linha[]>([])
+function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produtos: Produto[]; impressoras: Impressora[]; onClose: () => void; onSalvo: () => void; pedido?: Pedido }) {
+  const ed = !!pedido
+  const [linhas, setLinhas] = useState<Linha[]>(pedido ? pedido.itens_pedido.map(i => ({ produto_id: i.produto_id, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario), peso_g: 0, tempo_h: 0 })) : [])
   const [cfg, setCfg] = useState<ConfigCustos | null>(null)
   const [busca, setBusca] = useState('')
-  const [impressora, setImpressora] = useState('')
+  const [impressora, setImpressora] = useState(pedido?.impressora ?? '')
 
   useEffect(() => { api('/api/admin/config-custos').then(({ ok, j }) => { if (ok) setCfg(j.config as ConfigCustos) }) }, [])
-  const [cliente, setCliente] = useState('')
-  const [telefone, setTelefone] = useState('')
-  const [frete, setFrete] = useState(0)
-  const [pagamento, setPagamento] = useState('dinheiro')
-  const [status, setStatus] = useState('pago')
-  const [obs, setObs] = useState('')
+  const [cliente, setCliente] = useState(pedido?.cliente_nome ?? '')
+  const [telefone, setTelefone] = useState(pedido?.cliente_telefone ?? '')
+  const [frete, setFrete] = useState(pedido ? Number(pedido.frete) : 0)
+  const [pagamento, setPagamento] = useState(pedido?.forma_pagamento ?? 'dinheiro')
+  const [status, setStatus] = useState(pedido?.status ?? 'pago')
+  const [obs, setObs] = useState(pedido?.observacoes ?? '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -688,7 +692,10 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Pro
   async function salvar() {
     if (!linhas.length) { setErro('adicione ao menos 1 item'); return }
     setSalvando(true); setErro('')
-    const { ok, j } = await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify({ itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }) })
+    const corpo = { itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }
+    const { ok, j } = ed
+      ? await api('/api/admin/pedidos/' + pedido!.id, { method: 'PATCH', body: JSON.stringify(corpo) })
+      : await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify(corpo) })
     setSalvando(false)
     if (!ok) { setErro((j.error as string) || 'erro'); return }
     onSalvo()
@@ -698,7 +705,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Pro
     <div className="fixed inset-0 z-50 bg-black/50 grid place-items-end sm:place-items-center p-0 sm:p-6" onClick={onClose}>
       <div className="w-full sm:max-w-lg bg-[#faf9f5] rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-[#faf9f5] px-5 pt-5 pb-3 border-b border-[#15153f]/10 flex items-center justify-between">
-          <h2 className="serif text-xl font-semibold text-[#15153f]">Novo pedido manual</h2>
+          <h2 className="serif text-xl font-semibold text-[#15153f]">{ed ? `Editar pedido #${pedido!.codigo}` : 'Novo pedido manual'}</h2>
           <button onClick={onClose} className="text-2xl text-[#15153f]/40 leading-none">×</button>
         </div>
         <div className="p-5 space-y-4">
@@ -721,6 +728,12 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Pro
 
           {linhas.length > 0 && (
             <div className="space-y-2">
+              <div className="flex items-center gap-2 px-2 text-[10px] font-bold uppercase tracking-wide text-[#15153f]/45">
+                <span className="flex-1">Item</span>
+                <span className="w-14 text-center">Qtd</span>
+                <span className="w-20 text-center">Preço R$</span>
+                <span className="w-4"></span>
+              </div>
               {linhas.map((l, i) => {
                 const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0)
                 const sug = cfg ? Math.max(1, Math.round(custo * Number(cfg.markup))) : 0
@@ -731,7 +744,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Pro
                         className="flex-1 min-w-0 text-sm px-2 py-1 outline-none" />
                       <input type="number" min={1} value={l.quantidade} onChange={e => upd(i, { quantidade: Math.max(1, +e.target.value) })}
                         className="w-14 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-center" />
-                      <input type="number" min={0} step="0.01" value={l.preco_unitario} onChange={e => upd(i, { preco_unitario: +e.target.value })}
+                      <input type="number" min={0} step="0.01" value={l.preco_unitario} onChange={e => upd(i, { preco_unitario: +e.target.value })} title="preço unitário (R$)"
                         className="w-20 text-sm px-2 py-1 border border-[#15153f]/10 rounded text-right" />
                       <button onClick={() => rm(i)} className="text-[#15153f]/30 hover:text-red-600 px-1">×</button>
                     </div>
@@ -776,7 +789,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo }: { produtos: Pro
         <div className="sticky bottom-0 bg-white border-t border-[#15153f]/10 p-4 flex items-center justify-between">
           <div><span className="text-xs text-[#15153f]/50">Total</span><div className="serif text-xl font-bold text-[#15153f]">{brl(total)}</div></div>
           <button onClick={salvar} disabled={salvando} className="rounded-full bg-[#15153f] text-white font-bold px-7 py-3 hover:bg-[#333389] transition disabled:opacity-50">
-            {salvando ? 'salvando…' : 'Salvar pedido'}
+            {salvando ? 'salvando…' : ed ? 'Salvar alterações' : 'Salvar pedido'}
           </button>
         </div>
       </div>
