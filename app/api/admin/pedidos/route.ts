@@ -45,7 +45,8 @@ export async function POST(req: Request) {
 
   const subtotal = itens.reduce((s, i) => s + Number(i.preco_unitario) * Number(i.quantidade), 0)
   const frete = Number(body.frete ?? 0)
-  const total = subtotal + frete
+  const desconto = Number(body.desconto ?? 0)
+  const total = Math.max(0, subtotal + frete - desconto)
 
   const { service, erro } = svc()
   if (!service) return NextResponse.json({ error: erro }, { status: 503 })
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     origem: 'manual',
     status: (body.status as string) || 'pago',
     forma_pagamento: (body.forma_pagamento as string) || 'dinheiro',
-    subtotal, frete, total,
+    subtotal, frete, desconto, total,
     cliente_nome: (body.cliente_nome as string) || 'Cliente balcão',
     impressora: (body.impressora as string) || null,
     cliente_telefone: (body.cliente_telefone as string) || null,

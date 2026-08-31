@@ -5,7 +5,7 @@ import { supabase, brl, type Produto } from '@/lib/supabase'
 type Item = { id: string; produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; valor_total: number }
 type Pedido = {
   id: string; codigo: number; origem: string; status: string; forma_pagamento: string | null
-  subtotal: number; frete: number; total: number
+  subtotal: number; frete: number; desconto: number; total: number
   cliente_nome: string | null; cliente_telefone: string | null; cliente_cpf: string | null
   cep: string | null; cidade: string | null; uf: string | null
   frete_rastreio: string | null; frete_etiqueta_url: string | null; impressora: string | null
@@ -257,6 +257,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                   <div className="text-right shrink-0">
                     <div className="serif text-xl font-bold text-[#333389]">{brl(p.total)}</div>
                     {Number(p.frete) > 0 && <div className="text-[11px] text-[#15153f]/45">frete {brl(p.frete)}</div>}
+                    {Number(p.desconto) > 0 && <div className="text-[11px] text-[#2f855a]">desconto −{brl(p.desconto)}</div>}
                     <select value={p.status} onChange={e => mudarStatus(p.id, e.target.value)}
                       className="mt-2 rounded-full text-xs font-bold px-3 py-1.5 text-white border-0 cursor-pointer" style={{ background: si.cor }}>
                       {STATUS.map(s => <option key={s.v} value={s.v} style={{ background: '#fff', color: '#15153f' }}>{s.label}</option>)}
@@ -662,6 +663,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
   const [cliente, setCliente] = useState(pedido?.cliente_nome ?? '')
   const [telefone, setTelefone] = useState(pedido?.cliente_telefone ?? '')
   const [frete, setFrete] = useState(pedido ? Number(pedido.frete) : 0)
+  const [desconto, setDesconto] = useState(pedido ? Number(pedido.desconto) : 0)
   const [pagamento, setPagamento] = useState(pedido?.forma_pagamento ?? 'dinheiro')
   const [status, setStatus] = useState(pedido?.status ?? 'pago')
   const [obs, setObs] = useState(pedido?.observacoes ?? '')
@@ -687,12 +689,12 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
   function rm(i: number) { setLinhas(ls => ls.filter((_, x) => x !== i)) }
 
   const subtotal = linhas.reduce((s, l) => s + l.preco_unitario * l.quantidade, 0)
-  const total = subtotal + Number(frete || 0)
+  const total = Math.max(0, subtotal + Number(frete || 0) - Number(desconto || 0))
 
   async function salvar() {
     if (!linhas.length) { setErro('adicione ao menos 1 item'); return }
     setSalvando(true); setErro('')
-    const corpo = { itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }
+    const corpo = { itens: linhas, cliente_nome: cliente, cliente_telefone: telefone, frete: Number(frete || 0), desconto: Number(desconto || 0), forma_pagamento: pagamento, status, observacoes: obs, impressora }
     const { ok, j } = ed
       ? await api('/api/admin/pedidos/' + pedido!.id, { method: 'PATCH', body: JSON.stringify(corpo) })
       : await api('/api/admin/pedidos', { method: 'POST', body: JSON.stringify(corpo) })
@@ -778,8 +780,11 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                 {impressoras.map(i => <option key={i.id} value={i.nome}>{i.nome}</option>)}
               </select>
             )}
-            <label className="col-span-2 flex items-center gap-2 text-sm text-[#15153f]/70">
-              Frete R$ <input type="number" min={0} step="0.01" value={frete} onChange={e => setFrete(+e.target.value)} className="w-24 rounded-lg border border-[#15153f]/15 px-3 py-2" />
+            <label className="flex items-center gap-2 text-sm text-[#15153f]/70">
+              Frete R$ <input type="number" min={0} step="0.01" value={frete} onChange={e => setFrete(+e.target.value)} className="w-full rounded-lg border border-[#15153f]/15 px-3 py-2" />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[#15153f]/70">
+              Desconto R$ <input type="number" min={0} step="0.01" value={desconto} onChange={e => setDesconto(+e.target.value)} className="w-full rounded-lg border border-[#15153f]/15 px-3 py-2" />
             </label>
             <textarea value={obs} onChange={e => setObs(e.target.value)} placeholder="Observações" rows={2} className="col-span-2 rounded-lg border border-[#15153f]/15 px-3 py-2 outline-none focus:border-[#C9A86A]" />
           </div>
@@ -787,7 +792,10 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
           {erro && <p className="text-sm text-red-600">{erro}</p>}
         </div>
         <div className="sticky bottom-0 bg-white border-t border-[#15153f]/10 p-4 flex items-center justify-between">
-          <div><span className="text-xs text-[#15153f]/50">Total</span><div className="serif text-xl font-bold text-[#15153f]">{brl(total)}</div></div>
+          <div>
+            <div className="text-[11px] text-[#15153f]/45">subtotal {brl(subtotal)}{Number(frete) > 0 && ` + frete ${brl(frete)}`}{Number(desconto) > 0 && ` − desc ${brl(desconto)}`}</div>
+            <span className="text-xs text-[#15153f]/50">Total</span><div className="serif text-xl font-bold text-[#15153f]">{brl(total)}</div>
+          </div>
           <button onClick={salvar} disabled={salvando} className="rounded-full bg-[#15153f] text-white font-bold px-7 py-3 hover:bg-[#333389] transition disabled:opacity-50">
             {salvando ? 'salvando…' : ed ? 'Salvar alterações' : 'Salvar pedido'}
           </button>
