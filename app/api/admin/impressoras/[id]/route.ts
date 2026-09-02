@@ -13,12 +13,13 @@ function svc() {
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDono(req)) return NextResponse.json({ error: 'só o dono' }, { status: 403 })
   const { id } = await ctx.params
-  let body: { nome?: string; tipo?: string; ativo?: boolean }
+  let body: { nome?: string; tipo?: string; ativo?: boolean; custo_hora?: number }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
   const patch: Record<string, unknown> = {}
   if (body.nome) patch.nome = body.nome.trim()
   if (body.tipo !== undefined) patch.tipo = body.tipo
   if (typeof body.ativo === 'boolean') patch.ativo = body.ativo
+  if (body.custo_hora !== undefined) patch.custo_hora = Number(body.custo_hora)
   if (!Object.keys(patch).length) return NextResponse.json({ error: 'nada a atualizar' }, { status: 422 })
   const { service, erro } = svc()
   if (!service) return NextResponse.json({ error: erro }, { status: 503 })

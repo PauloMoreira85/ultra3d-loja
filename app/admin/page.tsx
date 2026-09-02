@@ -13,7 +13,7 @@ type Pedido = {
   imagens: string[] | null; estoque_baixado: boolean; observacoes: string | null; created_at: string; itens_pedido: Item[]
 }
 type Sessao = { nome: string; papel: 'dono' | 'funcionario' }
-type Impressora = { id: string; nome: string; tipo: string | null; ativo: boolean }
+type Impressora = { id: string; nome: string; tipo: string | null; ativo: boolean; custo_hora?: number }
 
 const STATUS: { v: string; label: string; cor: string }[] = [
   { v: 'aguardando_pagamento', label: 'Aguardando pgto', cor: '#b7791f' },
@@ -280,7 +280,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                     <div className="serif text-xl font-bold text-[#333389]">{brl(p.total)}</div>
                     {Number(p.frete) > 0 && <div className="text-[11px] text-[#15153f]/45">frete {brl(p.frete)}</div>}
                     {Number(p.desconto) > 0 && <div className="text-[11px] text-[#2f855a]">desconto −{brl(p.desconto)}</div>}
-                    {(() => { const c = custoPedido(cfgCusto, p); if (c <= 0) return null
+                    {(() => { const c = custoPedido(cfgCusto, p, impressoras); if (c <= 0) return null
                       const m = Number(p.total) > 0 ? ((Number(p.total) - c) / Number(p.total)) * 100 : null
                       return <div className="text-[11px] text-[#15153f]/55 mt-0.5">custo {brl(c)}{m != null && <span className="font-semibold" style={{ color: m < 40 ? '#c53030' : m < 60 ? '#b7791f' : '#2f855a' }}> · margem {m.toFixed(0)}%</span>}</div>
                     })()}
@@ -332,6 +332,7 @@ function ImpressorasModal({ onClose }: { onClose: () => void }) {
   const [lista, setLista] = useState<Impressora[]>([])
   const [nome, setNome] = useState('')
   const [tipo, setTipo] = useState('resina')
+  const [custoH, setCustoH] = useState(1)
   const [erro, setErro] = useState('')
 
   const carregar = useCallback(async () => { const { ok, j } = await api('/api/admin/impressoras'); if (ok) setLista(j.impressoras as Impressora[]) }, [])
@@ -340,10 +341,11 @@ function ImpressorasModal({ onClose }: { onClose: () => void }) {
   async function add() {
     setErro('')
     if (nome.trim().length < 2) { setErro('nome muito curto'); return }
-    const { ok, j } = await api('/api/admin/impressoras', { method: 'POST', body: JSON.stringify({ nome, tipo }) })
+    const { ok, j } = await api('/api/admin/impressoras', { method: 'POST', body: JSON.stringify({ nome, tipo, custo_hora: custoH }) })
     if (!ok) { setErro((j.error as string) || 'erro'); return }
-    setNome(''); carregar()
+    setNome(''); setCustoH(1); carregar()
   }
+  function setLocal(id: string, patch: Partial<Impressora>) { setLista(xs => xs.map(x => x.id === id ? { ...x, ...patch } : x)) }
   async function toggle(i: Impressora) { await api('/api/admin/impressoras/' + i.id, { method: 'PATCH', body: JSON.stringify({ ativo: !i.ativo }) }); carregar() }
   async function remover(i: Impressora) { if (!confirm('Remover ' + i.nome + '?')) return; await api('/api/admin/impressoras/' + i.id, { method: 'DELETE' }); carregar() }
 
@@ -360,13 +362,17 @@ function ImpressorasModal({ onClose }: { onClose: () => void }) {
             <select value={tipo} onChange={e => setTipo(e.target.value)} className="rounded-lg border border-[#15153f]/15 px-3 py-2 bg-white">
               <option value="resina">Resina</option><option value="fdm">FDM</option>
             </select>
+            <label className="flex items-center gap-1 text-sm text-[#15153f]/70">R$/h <input type="number" step="0.01" value={custoH} onChange={e => setCustoH(+e.target.value)} className="w-20 rounded-lg border border-[#15153f]/15 px-2 py-2 text-right" /></label>
             <button onClick={add} className="rounded-full bg-[#15153f] text-white font-bold px-5 py-2 text-sm hover:bg-[#333389]">Adicionar</button>
             {erro && <p className="w-full text-sm text-red-600">{erro}</p>}
           </div>
           <div className="space-y-2">
             {lista.map(i => (
               <div key={i.id} className={`flex items-center justify-between rounded-xl bg-white border border-[#15153f]/10 p-3 ${i.ativo ? '' : 'opacity-50'}`}>
-                <div><span className="font-semibold text-[#15153f]">{i.nome}</span> {i.tipo && <span className="text-[10px] font-bold text-[#C9A86A] uppercase ml-1">{i.tipo}</span>}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-[#15153f]">{i.nome}</span> {i.tipo && <span className="text-[10px] font-bold text-[#C9A86A] uppercase">{i.tipo}</span>}
+                  <label className="flex items-center gap-1 text-xs text-[#15153f]/60">R$/h <input type="number" step="0.01" value={i.custo_hora ?? 1} onChange={e => setLocal(i.id, { custo_hora: +e.target.value })} onBlur={e => api('/api/admin/impressoras/' + i.id, { method: 'PATCH', body: JSON.stringify({ custo_hora: +e.target.value }) })} className="w-16 rounded border border-[#15153f]/10 px-1.5 py-1 text-right" /></label>
+                </div>
                 <div className="flex items-center gap-3 text-xs font-semibold">
                   <button onClick={() => toggle(i)} className="text-[#15153f]/60">{i.ativo ? 'desativar' : 'ativar'}</button>
                   <button onClick={() => remover(i)} className="text-[#15153f]/40 hover:text-red-600">remover</button>
@@ -428,7 +434,7 @@ function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora,
                       <span className="font-bold text-[#15153f] text-sm">#{p.codigo} <span className="text-[#15153f]/40 font-normal">· {i + 1}º</span></span>
                       <span className="text-[11px] text-[#15153f]/45">{fmtData(p.created_at)}</span>
                     </div>
-                    <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}{custoPedido(cfg, p) > 0 && <span> · custo {brl(custoPedido(cfg, p))}</span>}</div>
+                    <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}{custoPedido(cfg, p, impressoras) > 0 && <span> · custo {brl(custoPedido(cfg, p, impressoras))}</span>}</div>
                     <div className="flex gap-2 mt-1.5">
                       {p.imagens?.[0] && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -466,22 +472,24 @@ function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora,
 // ---------------------------------------------------------------- CUSTOS
 type ConfigCustos = { filamento_kg: number; energia_kwh: number; potencia_w: number; falha_pct: number; maquina_hora: number; mao_obra_hora: number; markup: number }
 
-/** custo de impressão a partir de peso (g) e tempo (h) usando os parâmetros globais. */
-function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number): number {
+/** custo de impressão a partir de peso (g) e tempo (h). maqHora = R$/h da máquina (por impressora). */
+function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number, maqHora?: number): number {
   if (!cfg) return 0
+  const maq = maqHora != null ? Number(maqHora) : Number(cfg.maquina_hora || 0)
   const mat = (Number(pesoG) || 0) / 1000 * Number(cfg.filamento_kg)
   const energia = (Number(tempoH) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
-  const trabalho = (Number(tempoH) || 0) * (Number(cfg.maquina_hora || 0) + Number(cfg.mao_obra_hora || 0))
+  const trabalho = (Number(tempoH) || 0) * (maq + Number(cfg.mao_obra_hora || 0))
   return (mat + energia + trabalho) * (1 + Number(cfg.falha_pct) / 100)
 }
 /** custo de UM item (por unidade): impressão + consumo de estoque. */
-function custoItem(cfg: ConfigCustos | null, it: Item): number {
+function custoItem(cfg: ConfigCustos | null, it: Item, maqHora?: number): number {
   const consumo = (it.consumo ?? []).reduce((s, c) => s + Number(c.quantidade) * Number(c.custo_unit), 0)
-  return calcularCusto(cfg, it.peso_g ?? 0, it.tempo_h ?? 0) + consumo
+  return calcularCusto(cfg, it.peso_g ?? 0, it.tempo_h ?? 0, maqHora) + consumo
 }
-/** custo total de produção do pedido. */
-function custoPedido(cfg: ConfigCustos | null, p: { itens_pedido: Item[] }): number {
-  return (p.itens_pedido ?? []).reduce((s, it) => s + custoItem(cfg, it) * Number(it.quantidade), 0)
+/** custo total de produção do pedido (usa o R$/h da impressora do pedido). */
+function custoPedido(cfg: ConfigCustos | null, p: { itens_pedido: Item[]; impressora?: string | null }, impressoras?: Impressora[]): number {
+  const maq = impressoras?.find(i => i.nome === p.impressora)?.custo_hora
+  return (p.itens_pedido ?? []).reduce((s, it) => s + custoItem(cfg, it, maq) * Number(it.quantidade), 0)
 }
 
 function Custos() {
@@ -553,7 +561,7 @@ function Custos() {
           {campoCfg('falha_pct', 'Falhas (%)', '0.5')}
           {campoCfg('markup', 'Markup (×)', '0.1')}
         </div>
-        <p className="text-xs text-[#15153f]/45 mt-2">Custo = material (peso × R$/kg) + <b>tempo × (máquina + mão de obra)</b> + energia, + % de falhas. Preço sugerido = custo × markup. <b>Máquina</b> = depreciação/desgaste (Bambu ~R$0,50–1,50/h); <b>mão de obra</b> = seu trabalho por hora.</p>
+        <p className="text-xs text-[#15153f]/45 mt-2">Custo = material (peso × R$/kg) + <b>tempo × (máquina + mão de obra)</b> + energia, + % de falhas. Preço sugerido = custo × markup. <b>Máquina R$/h</b> aqui é o padrão; cada impressora pode ter o seu (Fila → 🖨️ Impressoras) e o pedido usa o da máquina escolhida. Ex.: Bambu ~R$1, SnapMaker R$2,50.</p>
       </div>
 
       <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar produto…"
@@ -933,7 +941,8 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                 <span className="w-4"></span>
               </div>
               {linhas.map((l, i) => {
-                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0) + consumoCusto(l)
+                const maqH = impressoras.find(x => x.nome === impressora)?.custo_hora
+                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0, maqH) + consumoCusto(l)
                 const sug = cfg ? Math.max(1, Math.round(custo * Number(cfg.markup))) : 0
                 return (
                   <div key={i} className="bg-white rounded-lg border border-[#15153f]/10 p-2">

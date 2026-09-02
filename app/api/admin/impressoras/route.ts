@@ -23,13 +23,13 @@ export async function GET(req: Request) {
 // POST { nome, tipo } → cria (só dono)
 export async function POST(req: Request) {
   if (!isDono(req)) return NextResponse.json({ error: 'só o dono' }, { status: 403 })
-  let body: { nome?: string; tipo?: string }
+  let body: { nome?: string; tipo?: string; custo_hora?: number }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) }
   const nome = (body.nome || '').trim()
   if (nome.length < 2) return NextResponse.json({ error: 'nome muito curto' }, { status: 422 })
   const { service, erro } = svc()
   if (!service) return NextResponse.json({ error: erro }, { status: 503 })
-  const { error } = await service.from('impressoras').insert({ nome, tipo: body.tipo || null, ordem: 99 })
+  const { error } = await service.from('impressoras').insert({ nome, tipo: body.tipo || null, custo_hora: Number(body.custo_hora) || 1, ordem: 99 })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
