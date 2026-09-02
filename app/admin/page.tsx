@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, brl, type Produto } from '@/lib/supabase'
 
 type ConsumoLinha = { estoque_id: string; nome: string; unidade: string; quantidade: number; custo_unit: number }
-type Item = { id: string; produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; valor_total: number; consumo?: ConsumoLinha[] }
+type Item = { id: string; produto_id: string | null; descricao: string; quantidade: number; preco_unitario: number; valor_total: number; consumo?: ConsumoLinha[]; peso_g?: number; tempo_h?: number }
 type Pedido = {
   id: string; codigo: number; origem: string; status: string; forma_pagamento: string | null
   subtotal: number; frete: number; desconto: number; total: number
@@ -790,7 +790,7 @@ type Linha = { produto_id: string | null; descricao: string; quantidade: number;
 
 function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produtos: Produto[]; impressoras: Impressora[]; onClose: () => void; onSalvo: () => void; pedido?: Pedido }) {
   const ed = !!pedido
-  const [linhas, setLinhas] = useState<Linha[]>(pedido ? pedido.itens_pedido.map(i => ({ produto_id: i.produto_id, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario), peso_g: 0, tempo_h: 0, consumo: i.consumo ?? [] })) : [])
+  const [linhas, setLinhas] = useState<Linha[]>(pedido ? pedido.itens_pedido.map(i => ({ produto_id: i.produto_id, descricao: i.descricao, quantidade: i.quantidade, preco_unitario: Number(i.preco_unitario), peso_g: Number(i.peso_g) || 0, tempo_h: Number(i.tempo_h) || 0, consumo: i.consumo ?? [] })) : [])
   const [cfg, setCfg] = useState<ConfigCustos | null>(null)
   const [insumos, setInsumos] = useState<Insumo[]>([])
   const [busca, setBusca] = useState('')
@@ -941,7 +941,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                         </div>
                         {/* consumo do estoque (dá baixa depois) */}
                         <div className="space-y-1">
-                          <div className="font-semibold text-[#15153f]/70">📦 Consumo do estoque <span className="font-normal text-[#15153f]/45">(filamento, corrente, tag NFC… — dá baixa depois)</span></div>
+                          <div className="font-semibold text-[#15153f]/70">📦 Consumo do estoque <span className="font-normal text-[#15153f]/45">(por unidade · filamento, corrente, tag… — a baixa multiplica pela qtd)</span></div>
                           {insumos.length === 0 && <p className="text-[#b7791f]">Cadastre os insumos na aba <b>Estoque</b> pra escolher aqui.</p>}
                           {(l.consumo ?? []).map((c, ci) => (
                             <div key={ci} className="flex items-center gap-2">
