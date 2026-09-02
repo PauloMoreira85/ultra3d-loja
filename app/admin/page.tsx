@@ -108,6 +108,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [impressoras, setImpressoras] = useState<Impressora[]>([])
   const [gerImpressoras, setGerImpressoras] = useState(false)
+  const [cfgCusto, setCfgCusto] = useState<ConfigCustos | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [fStatus, setFStatus] = useState('')
@@ -137,6 +138,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
   useEffect(() => {
     carregar()
     carregarImpressoras()
+    api('/api/admin/config-custos').then(({ ok, j }) => { if (ok) setCfgCusto(j.config as ConfigCustos) })
     supabase.from('produtos').select('*').eq('ativo', true).order('nome').then(({ data }) => setProdutos((data ?? []) as Produto[]))
   }, [carregar, carregarImpressoras])
 
@@ -201,7 +203,7 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
       </nav>
 
       <main className="max-w-6xl mx-auto px-5 py-6">
-        {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} impressoras={impAtivas} onImpressora={mudarImpressora} onGerenciar={dono ? () => setGerImpressoras(true) : undefined} />}
+        {aba === 'fila' && <Fila pedidos={pedidos} onStatus={mudarStatus} onReload={carregar} loading={loading} impressoras={impAtivas} onImpressora={mudarImpressora} onGerenciar={dono ? () => setGerImpressoras(true) : undefined} cfg={cfgCusto} />}
         {aba === 'custos' && <Custos />}
         {aba === 'estoque' && <Estoque dono={dono} />}
         {aba === 'pedidos' && <>
@@ -278,6 +280,10 @@ function Painel({ sessao, onLogout }: { sessao: Sessao; onLogout: () => void }) 
                     <div className="serif text-xl font-bold text-[#333389]">{brl(p.total)}</div>
                     {Number(p.frete) > 0 && <div className="text-[11px] text-[#15153f]/45">frete {brl(p.frete)}</div>}
                     {Number(p.desconto) > 0 && <div className="text-[11px] text-[#2f855a]">desconto −{brl(p.desconto)}</div>}
+                    {(() => { const c = custoPedido(cfgCusto, p); if (c <= 0) return null
+                      const m = Number(p.total) > 0 ? ((Number(p.total) - c) / Number(p.total)) * 100 : null
+                      return <div className="text-[11px] text-[#15153f]/55 mt-0.5">custo {brl(c)}{m != null && <span className="font-semibold" style={{ color: m < 40 ? '#c53030' : m < 60 ? '#b7791f' : '#2f855a' }}> · margem {m.toFixed(0)}%</span>}</div>
+                    })()}
                     <select value={p.status} onChange={e => mudarStatus(p.id, e.target.value)}
                       className="mt-2 rounded-full text-xs font-bold px-3 py-1.5 text-white border-0 cursor-pointer" style={{ background: si.cor }}>
                       {STATUS.map(s => <option key={s.v} value={s.v} style={{ background: '#fff', color: '#15153f' }}>{s.label}</option>)}
@@ -385,9 +391,9 @@ function CardM({ titulo, valor }: { titulo: string; valor: string }) {
 }
 
 // ---------------------------------------------------------------- FILA DE PRODUÇÃO
-function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora, onGerenciar }: {
+function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora, onGerenciar, cfg }: {
   pedidos: Pedido[]; onStatus: (id: string, s: string) => void; onReload: () => void; loading: boolean
-  impressoras: Impressora[]; onImpressora: (id: string, nome: string) => void; onGerenciar?: () => void
+  impressoras: Impressora[]; onImpressora: (id: string, nome: string) => void; onGerenciar?: () => void; cfg: ConfigCustos | null
 }) {
   const colunas: { status: string; titulo: string; cor: string; proximo?: string; acao?: string }[] = [
     { status: 'pago', titulo: 'A produzir', cor: '#2f855a', proximo: 'em_producao', acao: '▶ Iniciar' },
@@ -422,7 +428,7 @@ function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora,
                       <span className="font-bold text-[#15153f] text-sm">#{p.codigo} <span className="text-[#15153f]/40 font-normal">· {i + 1}º</span></span>
                       <span className="text-[11px] text-[#15153f]/45">{fmtData(p.created_at)}</span>
                     </div>
-                    <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}</div>
+                    <div className="text-xs text-[#15153f]/60">{p.cliente_nome || 'Cliente'} · {totalPecas(p)} {totalPecas(p) === 1 ? 'peça' : 'peças'}{custoPedido(cfg, p) > 0 && <span> · custo {brl(custoPedido(cfg, p))}</span>}</div>
                     <div className="flex gap-2 mt-1.5">
                       {p.imagens?.[0] && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -467,6 +473,15 @@ function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number):
   const energia = (Number(tempoH) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
   const mao = (Number(tempoH) || 0) * Number(cfg.mao_obra_hora)
   return (mat + energia + mao) * (1 + Number(cfg.falha_pct) / 100)
+}
+/** custo de UM item (por unidade): impressão + consumo de estoque. */
+function custoItem(cfg: ConfigCustos | null, it: Item): number {
+  const consumo = (it.consumo ?? []).reduce((s, c) => s + Number(c.quantidade) * Number(c.custo_unit), 0)
+  return calcularCusto(cfg, it.peso_g ?? 0, it.tempo_h ?? 0) + consumo
+}
+/** custo total de produção do pedido. */
+function custoPedido(cfg: ConfigCustos | null, p: { itens_pedido: Item[] }): number {
+  return (p.itens_pedido ?? []).reduce((s, it) => s + custoItem(cfg, it) * Number(it.quantidade), 0)
 }
 
 function Custos() {
