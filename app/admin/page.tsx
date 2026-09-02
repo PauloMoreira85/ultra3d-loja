@@ -464,15 +464,15 @@ function Fila({ pedidos, onStatus, onReload, loading, impressoras, onImpressora,
 }
 
 // ---------------------------------------------------------------- CUSTOS
-type ConfigCustos = { filamento_kg: number; energia_kwh: number; potencia_w: number; falha_pct: number; mao_obra_hora: number; markup: number }
+type ConfigCustos = { filamento_kg: number; energia_kwh: number; potencia_w: number; falha_pct: number; maquina_hora: number; mao_obra_hora: number; markup: number }
 
 /** custo de impressão a partir de peso (g) e tempo (h) usando os parâmetros globais. */
 function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number): number {
   if (!cfg) return 0
   const mat = (Number(pesoG) || 0) / 1000 * Number(cfg.filamento_kg)
   const energia = (Number(tempoH) || 0) * Number(cfg.potencia_w) / 1000 * Number(cfg.energia_kwh)
-  const mao = (Number(tempoH) || 0) * Number(cfg.mao_obra_hora)
-  return (mat + energia + mao) * (1 + Number(cfg.falha_pct) / 100)
+  const trabalho = (Number(tempoH) || 0) * (Number(cfg.maquina_hora || 0) + Number(cfg.mao_obra_hora || 0))
+  return (mat + energia + trabalho) * (1 + Number(cfg.falha_pct) / 100)
 }
 /** custo de UM item (por unidade): impressão + consumo de estoque. */
 function custoItem(cfg: ConfigCustos | null, it: Item): number {
@@ -545,14 +545,15 @@ function Custos() {
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {campoCfg('filamento_kg', 'Material R$/kg (filamento/resina)')}
-          {campoCfg('mao_obra_hora', 'Máquina + operador R$/h')}
+          {campoCfg('filamento_kg', 'Material R$/kg')}
+          {campoCfg('maquina_hora', 'Máquina R$/h')}
+          {campoCfg('mao_obra_hora', 'Mão de obra R$/h')}
           {campoCfg('energia_kwh', 'Energia R$/kWh', '0.0001')}
           {campoCfg('potencia_w', 'Potência (W)', '1')}
           {campoCfg('falha_pct', 'Falhas (%)', '0.5')}
           {campoCfg('markup', 'Markup (×)', '0.1')}
         </div>
-        <p className="text-xs text-[#15153f]/45 mt-2">Custo = material (peso × R$/kg) + <b>tempo × (máquina+operador)</b> + energia, + % de falhas. Preço sugerido = custo × markup. <b>Preencha peso e tempo de cada peça</b> — o tempo é o que mais pesa na impressão 3D.</p>
+        <p className="text-xs text-[#15153f]/45 mt-2">Custo = material (peso × R$/kg) + <b>tempo × (máquina + mão de obra)</b> + energia, + % de falhas. Preço sugerido = custo × markup. <b>Máquina</b> = depreciação/desgaste (Bambu ~R$0,50–1,50/h); <b>mão de obra</b> = seu trabalho por hora.</p>
       </div>
 
       <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar produto…"

@@ -10,7 +10,7 @@ function svc() {
   catch { return { erro: 'Banco não configurado no Vercel.' } }
 }
 
-const CAMPOS = new Set(['filamento_kg', 'energia_kwh', 'potencia_w', 'falha_pct', 'mao_obra_hora', 'markup'])
+const CAMPOS = new Set(['filamento_kg', 'energia_kwh', 'potencia_w', 'falha_pct', 'maquina_hora', 'mao_obra_hora', 'markup'])
 
 // GET → parâmetros de custo (qualquer staff pode ver p/ calcular)
 export async function GET(req: Request) {
