@@ -656,6 +656,7 @@ function Estoque({ dono }: { dono: boolean }) {
   const [itens, setItens] = useState<Insumo[]>([])
   const [busca, setBusca] = useState('')
   const [novo, setNovo] = useState({ nome: '', categoria: 'Filamento', unidade: 'kg', quantidade: 0, minimo: 0, custo_unit: 0 })
+  const [importar, setImportar] = useState(false)
   const [erro, setErro] = useState('')
 
   const carregar = useCallback(async () => { const { ok, j } = await api('/api/admin/estoque'); if (ok) setItens(j.itens as Insumo[]) }, [])
@@ -692,7 +693,10 @@ function Estoque({ dono }: { dono: boolean }) {
 
       {/* adicionar */}
       <div className="rounded-2xl bg-white border border-[#15153f]/8 p-4 mb-5">
-        <div className="text-xs font-semibold text-[#15153f]/60 mb-2">Adicionar insumo</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-semibold text-[#15153f]/60">Adicionar insumo</div>
+          <button onClick={() => setImportar(true)} className="rounded-full border border-[#333389]/30 text-[#333389] font-bold px-3 py-1.5 text-xs hover:bg-[#333389]/5">📄 Importar XML (NF-e)</button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
           <input value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} placeholder="Nome (ex.: PLA Branco Fosco)" className="col-span-2 rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm outline-none focus:border-[#C9A86A]" />
           <select value={novo.categoria} onChange={e => setNovo({ ...novo, categoria: e.target.value })} className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm bg-white">{CATEGORIAS.map(c => <option key={c}>{c}</option>)}</select>
@@ -741,6 +745,111 @@ function Estoque({ dono }: { dono: boolean }) {
       ))}
       {!itens.length && <p className="text-center text-[#15153f]/45 py-10">Nenhum insumo. Adicione acima.</p>}
       <p className="text-xs text-[#15153f]/45 mt-1">− e + ajustam a quantidade (entrada/saída). Editar quantidade/mínimo/custo salva ao sair do campo.</p>
+      {importar && <ImportarXML insumos={itens} onClose={() => setImportar(false)} onDone={() => { setImportar(false); carregar() }} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- IMPORTAR XML (NF-e)
+type XmlLinha = { descricao: string; qtd: number; unidade: string; custo: number; destino: string; converter: number }
+
+function ImportarXML({ insumos, onClose, onDone }: { insumos: Insumo[]; onClose: () => void; onDone: () => void }) {
+  const [linhas, setLinhas] = useState<XmlLinha[]>([])
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  function ler(file: File | undefined) {
+    if (!file) return
+    setErro('')
+    const r = new FileReader()
+    r.onload = () => {
+      try {
+        const doc = new DOMParser().parseFromString(String(r.result), 'text/xml')
+        if (doc.getElementsByTagName('parsererror').length) throw new Error('XML inválido')
+        const dets = Array.from(doc.getElementsByTagName('det'))
+        const txt = (el: Element | undefined, tag: string) => el?.getElementsByTagName(tag)[0]?.textContent ?? ''
+        const out: XmlLinha[] = []
+        for (const det of dets) {
+          const prod = det.getElementsByTagName('prod')[0]
+          if (!prod) continue
+          const descricao = txt(prod, 'xProd')
+          const unidade = (txt(prod, 'uCom') || 'un').toLowerCase()
+          const qtd = parseFloat(txt(prod, 'qCom') || '0') || 0
+          const custo = parseFloat(txt(prod, 'vUnCom') || '0') || 0
+          // tenta casar com insumo existente pelo nome
+          const match = insumos.find(i => i.nome.toLowerCase() === descricao.toLowerCase())
+          out.push({ descricao, qtd, unidade, custo, destino: match?.id ?? 'novo', converter: 1 })
+        }
+        if (!out.length) throw new Error('nenhum produto encontrado no XML')
+        setLinhas(out)
+      } catch (e) { setErro(e instanceof Error ? e.message : 'falha ao ler XML') }
+    }
+    r.readAsText(file)
+  }
+
+  function upd(i: number, patch: Partial<XmlLinha>) { setLinhas(ls => ls.map((l, x) => x === i ? { ...l, ...patch } : l)) }
+
+  async function importarTudo() {
+    setSalvando(true); setErro('')
+    for (const l of linhas) {
+      const qtd = l.qtd * (l.converter || 1)
+      const custo = (l.converter || 1) !== 1 ? l.custo / (l.converter || 1) : l.custo   // custo por unidade final
+      if (l.destino === 'novo') {
+        await api('/api/admin/estoque', { method: 'POST', body: JSON.stringify({ nome: l.descricao, categoria: 'Outros', unidade: l.unidade, quantidade: qtd, minimo: 0, custo_unit: custo }) })
+      } else {
+        await api('/api/admin/estoque/' + l.destino, { method: 'PATCH', body: JSON.stringify({ delta: qtd, custo_unit: custo }) })
+      }
+    }
+    setSalvando(false); onDone()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 grid place-items-end sm:place-items-center p-0 sm:p-6" onClick={onClose}>
+      <div className="w-full sm:max-w-2xl bg-[#faf9f5] rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-[#faf9f5] px-5 pt-5 pb-3 border-b border-[#15153f]/10 flex items-center justify-between">
+          <h2 className="serif text-xl font-semibold text-[#15153f]">Importar NF-e (XML)</h2>
+          <button onClick={onClose} className="text-2xl text-[#15153f]/40 leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-3">
+          {!linhas.length ? (
+            <label className="block rounded-xl border-2 border-dashed border-[#15153f]/20 p-8 text-center cursor-pointer hover:border-[#C9A86A]">
+              <div className="text-3xl mb-1">📄</div>
+              <div className="text-sm font-semibold text-[#15153f]/70">Selecionar o arquivo XML da nota</div>
+              <div className="text-xs text-[#15153f]/45 mt-1">o XML da NF-e (não o DANFE/PDF)</div>
+              <input type="file" accept=".xml,text/xml,application/xml" className="hidden" onChange={e => ler(e.target.files?.[0])} />
+            </label>
+          ) : (
+            <>
+              <p className="text-xs text-[#15153f]/55">Confira, ajuste e escolha o destino de cada item. Pra filamento em <b>gramas</b>, use o “×” de conversão (ex.: 1 rolo = ×1000).</p>
+              <div className="space-y-2">
+                {linhas.map((l, i) => (
+                  <div key={i} className="rounded-xl bg-white border border-[#15153f]/10 p-3 space-y-2">
+                    <input value={l.descricao} onChange={e => upd(i, { descricao: e.target.value })} className="w-full text-sm font-semibold text-[#15153f] px-2 py-1 border border-[#15153f]/10 rounded" />
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <label className="flex items-center gap-1">qtd <input type="number" step="0.0001" value={l.qtd} onChange={e => upd(i, { qtd: +e.target.value })} className="w-20 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" /></label>
+                      <span className="uppercase text-[#15153f]/50">{l.unidade}</span>
+                      <label className="flex items-center gap-1">× <input type="number" step="1" value={l.converter} onChange={e => upd(i, { converter: +e.target.value })} title="conversão (ex.: kg→g = 1000)" className="w-16 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" /></label>
+                      <label className="flex items-center gap-1">R$/un <input type="number" step="0.0001" value={l.custo} onChange={e => upd(i, { custo: +e.target.value })} className="w-20 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" /></label>
+                      <select value={l.destino} onChange={e => upd(i, { destino: e.target.value })} className="rounded border border-[#15153f]/15 px-2 py-1 bg-white ml-auto">
+                        <option value="novo">➕ criar novo</option>
+                        {insumos.map(x => <option key={x.id} value={x.id}>somar em: {x.nome}</option>)}
+                      </select>
+                    </div>
+                    <div className="text-[11px] text-[#15153f]/45">= entra <b>{(l.qtd * (l.converter || 1)).toLocaleString('pt-BR')}</b> {l.destino === 'novo' ? l.unidade : (insumos.find(x => x.id === l.destino)?.unidade || '')} · custo/un {brl((l.converter || 1) !== 1 ? l.custo / (l.converter || 1) : l.custo)}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {erro && <p className="text-sm text-red-600">{erro}</p>}
+        </div>
+        {linhas.length > 0 && (
+          <div className="sticky bottom-0 bg-white border-t border-[#15153f]/10 p-4 flex items-center justify-between">
+            <button onClick={() => setLinhas([])} className="text-sm text-[#15153f]/50">← trocar arquivo</button>
+            <button onClick={importarTudo} disabled={salvando} className="rounded-full bg-[#15153f] text-white font-bold px-6 py-3 hover:bg-[#333389] disabled:opacity-50">{salvando ? 'importando…' : `Importar ${linhas.length} ${linhas.length === 1 ? 'item' : 'itens'}`}</button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
