@@ -481,10 +481,11 @@ function calcularCusto(cfg: ConfigCustos | null, pesoG: number, tempoH: number, 
   const trabalho = (Number(tempoH) || 0) * (maq + Number(cfg.mao_obra_hora || 0))
   return (mat + energia + trabalho) * (1 + Number(cfg.falha_pct) / 100)
 }
-/** custo de UM item (por unidade): impressão + consumo de estoque. */
+/** custo de UM item (por unidade): impressão + consumo de estoque. Consumo tem prioridade sobre peso (não duplica material). */
 function custoItem(cfg: ConfigCustos | null, it: Item, maqHora?: number): number {
   const consumo = (it.consumo ?? []).reduce((s, c) => s + Number(c.quantidade) * Number(c.custo_unit), 0)
-  return calcularCusto(cfg, it.peso_g ?? 0, it.tempo_h ?? 0, maqHora) + consumo
+  const peso = (it.consumo ?? []).length > 0 ? 0 : (it.peso_g ?? 0)
+  return calcularCusto(cfg, peso, it.tempo_h ?? 0, maqHora) + consumo
 }
 /** custo total de produção do pedido (usa o R$/h da impressora do pedido). */
 function custoPedido(cfg: ConfigCustos | null, p: { itens_pedido: Item[]; impressora?: string | null }, impressoras?: Impressora[]): number {
@@ -942,7 +943,8 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
               </div>
               {linhas.map((l, i) => {
                 const maqH = impressoras.find(x => x.nome === impressora)?.custo_hora
-                const custo = calcularCusto(cfg, l.peso_g ?? 0, l.tempo_h ?? 0, maqH) + consumoCusto(l)
+                const usaC = (l.consumo ?? []).length > 0
+                const custo = calcularCusto(cfg, usaC ? 0 : (l.peso_g ?? 0), l.tempo_h ?? 0, maqH) + consumoCusto(l)
                 const sug = cfg ? Math.max(1, Math.round(custo * Number(cfg.markup))) : 0
                 return (
                   <div key={i} className="bg-white rounded-lg border border-[#15153f]/10 p-2">
@@ -959,7 +961,7 @@ function NovoPedido({ produtos, impressoras, onClose, onSalvo, pedido }: { produ
                       <div className="mt-2 pt-2 border-t border-[#15153f]/8 text-xs text-[#15153f]/60 space-y-2">
                         <div className="flex items-center flex-wrap gap-2">
                           <span className="font-semibold">Custo:</span>
-                          <label className="flex items-center gap-1" title="peso só se NÃO usar consumo do estoque">peso <input type="number" min={0} value={l.peso_g ?? 0} onChange={e => upd(i, { peso_g: +e.target.value })} className="w-14 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />g</label>
+                          <label className={`flex items-center gap-1 ${usaC ? 'opacity-40 line-through' : ''}`} title={usaC ? 'ignorado — material vem do consumo abaixo' : 'peso só se NÃO usar consumo do estoque'}>peso <input type="number" min={0} value={l.peso_g ?? 0} onChange={e => upd(i, { peso_g: +e.target.value })} className="w-14 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />g</label>
                           <label className="flex items-center gap-1">tempo <input type="number" min={0} step="0.1" value={l.tempo_h ?? 0} onChange={e => upd(i, { tempo_h: +e.target.value })} className="w-14 px-1.5 py-1 border border-[#15153f]/10 rounded text-right" />h</label>
                           <span>= <b className="text-[#15153f]">{brl(custo)}</b></span>
                           {cfg && <button onClick={() => upd(i, { preco_unitario: sug })} className="font-bold text-[#333389] hover:underline">usar sugerido {brl(sug)}</button>}
