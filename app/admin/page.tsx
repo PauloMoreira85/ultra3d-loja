@@ -697,7 +697,7 @@ function Estoque({ dono }: { dono: boolean }) {
           <input value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} placeholder="Nome (ex.: PLA Branco Fosco)" className="col-span-2 rounded-lg border border-[#15153f]/15 px-3 py-2 text-sm outline-none focus:border-[#C9A86A]" />
           <select value={novo.categoria} onChange={e => setNovo({ ...novo, categoria: e.target.value })} className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm bg-white">{CATEGORIAS.map(c => <option key={c}>{c}</option>)}</select>
           <select value={novo.unidade} onChange={e => setNovo({ ...novo, unidade: e.target.value })} className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm bg-white">{UNIDADES.map(u => <option key={u}>{u}</option>)}</select>
-          <input type="number" step="0.01" value={novo.custo_unit} onChange={e => setNovo({ ...novo, custo_unit: +e.target.value })} placeholder="R$/un" title="custo por unidade" className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm text-right" />
+          <input type="number" step="0.0001" value={novo.custo_unit} onChange={e => setNovo({ ...novo, custo_unit: +e.target.value })} placeholder="R$/un" title="custo por unidade" className="rounded-lg border border-[#15153f]/15 px-2 py-2 text-sm text-right" />
           <button onClick={add} className="rounded-full bg-[#15153f] text-white font-bold px-4 py-2 text-sm hover:bg-[#333389]">Adicionar</button>
         </div>
         {erro && <p className="text-sm text-red-600 mt-2">{erro}</p>}
@@ -729,7 +729,7 @@ function Estoque({ dono }: { dono: boolean }) {
                         </div>
                       </td>
                       <td className="p-3"><input type="number" step="0.01" value={it.minimo} onChange={e => setLocal(it.id, { minimo: +e.target.value })} onBlur={e => upd(it.id, { minimo: +e.target.value })} className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" /></td>
-                      <td className="p-3"><input type="number" step="0.01" value={it.custo_unit} onChange={e => setLocal(it.id, { custo_unit: +e.target.value })} onBlur={e => upd(it.id, { custo_unit: +e.target.value })} className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" /></td>
+                      <td className="p-3"><input type="number" step="0.0001" value={it.custo_unit} onChange={e => setLocal(it.id, { custo_unit: +e.target.value })} onBlur={e => upd(it.id, { custo_unit: +e.target.value })} className="w-20 rounded border border-[#15153f]/10 px-2 py-1 text-right" /></td>
                       <td className="p-3 text-right">{dono && <button onClick={() => remover(it)} className="text-[11px] text-[#15153f]/40 hover:text-red-600">remover</button>}</td>
                     </tr>
                   )
