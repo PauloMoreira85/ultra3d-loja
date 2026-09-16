@@ -12,8 +12,13 @@ export interface ResultadoEtiqueta { etiqueta_url: string; rastreio: string | nu
 export async function gerarEtiquetaPedido(service: SupabaseClient, pedidoId: string): Promise<ResultadoEtiqueta> {
   const { data: p, error } = await service.from('pedidos').select('*').eq('id', pedidoId).single()
   if (error || !p) throw new Error('Pedido não encontrado')
+  // já 100% pronto: reaproveita
   if (p.frete_etiqueta_url && p.melhorenvio_order_id) {
     return { etiqueta_url: p.frete_etiqueta_url, rastreio: p.frete_rastreio, me_order_id: p.melhorenvio_order_id }
+  }
+  // reserva já paga no ME mas sem PDF: NÃO reserva/cobra de novo — só gera/imprime a existente
+  if (p.melhorenvio_order_id) {
+    return await finalizarEtiqueta(service, pedidoId, p.melhorenvio_order_id, p.status, p.frete_rastreio)
   }
   if (!dig(p.cep)) throw new Error('Pedido sem CEP de entrega')
 
@@ -66,21 +71,29 @@ export async function gerarEtiquetaPedido(service: SupabaseClient, pedidoId: str
   await checkoutCarrinho([cartId])
   await service.from('pedidos').update({ melhorenvio_order_id: cartId }).eq('id', pedidoId)
 
-  try { await gerarEtiquetas([cartId]) } catch { /* pode já estar gerada */ }
-  let rastreio: string | null = null
+  return await finalizarEtiqueta(service, pedidoId, cartId, p.status, p.frete_rastreio)
+}
+
+/** Gera + imprime a etiqueta de uma reserva JÁ paga (idempotente). Não reserva nem cobra. */
+async function finalizarEtiqueta(
+  service: SupabaseClient, pedidoId: string, orderId: string,
+  statusAtual: string, rastreioAtual: string | null,
+): Promise<ResultadoEtiqueta> {
+  try { await gerarEtiquetas([orderId]) } catch { /* pode já estar gerada */ }
+  let rastreio: string | null = rastreioAtual ?? null
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 2000))
     try {
-      const d = await buscarShipment(cartId)
+      const d = await buscarShipment(orderId)
       rastreio = d.tracking ?? d.self_tracking ?? rastreio
       if (d.generated_at || d.status === 'generated' || d.status === 'posted') break
     } catch { /* segue tentando */ }
   }
-  const pr = await imprimirEtiquetas([cartId])
+  const pr = await imprimirEtiquetas([orderId])
 
   await service.from('pedidos').update({
-    frete_etiqueta_url: pr.url, frete_rastreio: rastreio, status: p.status === 'pago' ? 'enviado' : p.status,
+    frete_etiqueta_url: pr.url, frete_rastreio: rastreio, status: statusAtual === 'pago' ? 'enviado' : statusAtual,
   }).eq('id', pedidoId)
 
-  return { etiqueta_url: pr.url, rastreio, me_order_id: cartId }
+  return { etiqueta_url: pr.url, rastreio, me_order_id: orderId }
 }
